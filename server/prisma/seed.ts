@@ -7,10 +7,10 @@ const prisma = new PrismaClient();
 // GameRegistry - the platform code never needs to change.
 const games = [
   {
-    name: "Spyfall",
+    name: "สายลับ (Spyfall)",
     slug: "spyfall",
     description:
-      "One player is the secret Spy. Everyone else knows the location and their role there. Ask clever questions, spot who doesn't belong, and vote out the Spy before time runs out.",
+      "ผู้เล่นคนหนึ่งจะเป็นสปายลับ ส่วนคนอื่น ๆ จะรู้สถานที่และบทบาทของตัวเองที่นั่น ถามคำถามให้ฉลาด จับผิดคนที่ดูไม่เข้าพวก แล้วโหวตหาสปายให้ได้ก่อนหมดเวลา",
     minPlayers: 3,
     maxPlayers: 8,
     isActive: true,

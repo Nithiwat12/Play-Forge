@@ -19,7 +19,7 @@ function extractToken(req: Request): string | null {
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const token = extractToken(req);
   if (!token) {
-    return next(ApiError.unauthorized("Authentication required"));
+    return next(ApiError.unauthorized("ต้องเข้าสู่ระบบก่อน"));
   }
 
   try {
@@ -31,7 +31,7 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
     };
     next();
   } catch {
-    next(ApiError.unauthorized("Invalid or expired token"));
+    next(ApiError.unauthorized("โทเคนไม่ถูกต้องหรือหมดอายุ"));
   }
 }
 

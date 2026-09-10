@@ -17,15 +17,29 @@ import {
   SPYFALL_MAX_PLAYERS,
   SPYFALL_TIMER_SECONDS,
   SPYFALL_MAX_TEXT_LENGTH,
+  SPYFALL_TIE_EXTENSION_SECONDS,
+  SPYFALL_MAX_TIE_EXTENSIONS,
   validateQuestionPayload,
   validateAnswerPayload,
   validateVotePayload,
   validateGuessPayload,
   tallyVotes,
   resolveMajority,
+  requiredVoteCallers,
 } from "./SpyfallRules";
 
 const MAX_LOG_ENTRIES = 200;
+const MIN_DISCUSSION_SECONDS = 3 * 60;
+const MAX_DISCUSSION_SECONDS = 20 * 60;
+
+// Per-room, host-chosen config (set at room creation, see RoomService /
+// CreateRoom page). Everything here is optional - a room with no settings
+// gets the classic defaults.
+export interface SpyfallConfig {
+  discussionSeconds?: number;
+  customLocations?: SpyfallLocation[];
+  onlyCustomLocations?: boolean;
+}
 
 /**
  * Spyfall engine. Owns all Spyfall-specific state and rules; the platform
@@ -35,26 +49,36 @@ const MAX_LOG_ENTRIES = 200;
 export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateState> {
   readonly slug = "spyfall";
 
+  private config: SpyfallConfig;
   private location: SpyfallLocation | null = null;
   private spyUserId: string | null = null;
   private roleAssignment: Map<string, string> = new Map();
   private log: SpyfallLogEntry[] = [];
   private votes: Map<string, string> = new Map(); // voterUserId -> targetUserId
+  private voteCallers: Set<string> = new Set();
+  private tieExtensionsUsed = 0;
   private disconnected: Set<string> = new Set();
   private phase: SpyfallPhase = "IN_PROGRESS";
   private result: SpyfallResult | null = null;
+  private discussionSeconds: number = SPYFALL_TIMER_SECONDS;
   private timerEndsAt: number | null = null;
   private timer: NodeJS.Timeout | null = null;
 
+  constructor(roomId: string, config?: SpyfallConfig) {
+    super(roomId);
+    this.config = config ?? {};
+  }
+
   start(): void {
     if (this.players.size < SPYFALL_MIN_PLAYERS) {
-      throw new Error(`Spyfall requires at least ${SPYFALL_MIN_PLAYERS} players`);
+      throw new Error(`Spyfall ต้องมีผู้เล่นอย่างน้อย ${SPYFALL_MIN_PLAYERS} คน`);
     }
     if (this.players.size > SPYFALL_MAX_PLAYERS) {
-      throw new Error(`Spyfall supports at most ${SPYFALL_MAX_PLAYERS} players`);
+      throw new Error(`Spyfall รองรับผู้เล่นได้สูงสุด ${SPYFALL_MAX_PLAYERS} คน`);
     }
 
-    this.location = shuffle(SPYFALL_LOCATIONS)[0];
+    this.discussionSeconds = this.resolveDiscussionSeconds();
+    this.location = shuffle(this.buildLocationPool())[0];
 
     const playerIds = this.getPlayers().map((p) => p.userId);
     this.spyUserId = playerIds[Math.floor(Math.random() * playerIds.length)];
@@ -63,10 +87,48 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
 
     this.phase = "IN_PROGRESS";
     this.started = true;
-    this.timerEndsAt = Date.now() + SPYFALL_TIMER_SECONDS * 1000;
-    this.timer = setTimeout(() => this.forceEndByTimer(), SPYFALL_TIMER_SECONDS * 1000);
+    this.beginTimer(this.discussionSeconds);
 
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+  }
+
+  private resolveDiscussionSeconds(): number {
+    const configured = this.config.discussionSeconds;
+    if (typeof configured !== "number" || !Number.isFinite(configured)) {
+      return SPYFALL_TIMER_SECONDS;
+    }
+    return Math.min(MAX_DISCUSSION_SECONDS, Math.max(MIN_DISCUSSION_SECONDS, Math.round(configured)));
+  }
+
+  // Merges the host's custom locations (validated shape only - never
+  // trusted further than "looks like a location") into the default Thai
+  // deck, or replaces it entirely when the host opted into "only custom".
+  private buildLocationPool(): SpyfallLocation[] {
+    const custom = (this.config.customLocations ?? [])
+      .filter(
+        (loc): loc is SpyfallLocation =>
+          typeof loc?.name === "string" &&
+          loc.name.trim().length > 0 &&
+          Array.isArray(loc.roles) &&
+          loc.roles.filter((r) => typeof r === "string" && r.trim().length > 0).length >= 2
+      )
+      .map((loc) => ({
+        name: loc.name.trim(),
+        roles: loc.roles.filter((r) => typeof r === "string" && r.trim().length > 0).map((r) => r.trim()),
+      }));
+
+    if (this.config.onlyCustomLocations && custom.length > 0) {
+      return custom;
+    }
+    return custom.length > 0 ? [...SPYFALL_LOCATIONS, ...custom] : SPYFALL_LOCATIONS;
+  }
+
+  private beginTimer(seconds: number): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+    this.timerEndsAt = Date.now() + seconds * 1000;
+    this.timer = setTimeout(() => this.forceEndByTimer(), seconds * 1000);
   }
 
   // Players who leave mid-round keep their role/spy assignment intact
@@ -83,10 +145,10 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
 
   handleAction(userId: string, actionType: string, payload: unknown): void {
     if (!this.players.has(userId)) {
-      throw new GameActionError("You are not part of this game");
+      throw new GameActionError("คุณไม่ได้อยู่ในเกมนี้");
     }
     if (this.finished) {
-      throw new GameActionError("This game has already ended");
+      throw new GameActionError("เกมนี้จบไปแล้ว");
     }
 
     switch (actionType) {
@@ -96,24 +158,27 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       case SPYFALL_ACTIONS.ANSWER:
         this.handleAnswer(userId, validateAnswerPayload(payload));
         break;
+      case SPYFALL_ACTIONS.CALL_VOTE:
+        this.handleCallVote(userId);
+        break;
       case SPYFALL_ACTIONS.VOTE:
         this.handleVote(userId, validateVotePayload(payload).targetUserId);
         break;
       case SPYFALL_ACTIONS.GUESS:
-        this.handleGuess(userId, validateGuessPayload(payload).location);
+        this.handleGuess(userId, validateGuessPayload(payload).correct);
         break;
       default:
-        throw new GameActionError(`Unknown Spyfall action: ${actionType}`);
+        throw new GameActionError(`ไม่รู้จักการกระทำนี้: ${actionType}`);
     }
   }
 
   private handleQuestion(fromUserId: string, payload: { toUserId: string; text: string }): void {
     if (payload.toUserId === fromUserId) {
-      throw new GameActionError("You cannot question yourself");
+      throw new GameActionError("คุณถามตัวเองไม่ได้");
     }
     const target = this.players.get(payload.toUserId);
     if (!target) {
-      throw new GameActionError("Target player is not in this game");
+      throw new GameActionError("ผู้เล่นที่เลือกไม่ได้อยู่ในเกมนี้");
     }
     const from = this.players.get(fromUserId)!;
 
@@ -141,75 +206,120 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     });
   }
 
+  // Any player (the Spy included - this is how the Spy "stops the game to
+  // answer") can call for a vote. Once a simple majority of the current
+  // players have called for it, the room moves into the dedicated voting
+  // screen - see getPublicState().voteCallers/requiredVoteCallers.
+  private handleCallVote(userId: string): void {
+    if (this.phase !== "IN_PROGRESS") {
+      throw new GameActionError("ตอนนี้ไม่ได้อยู่ในช่วงพูดคุย เปิดโหวตไม่ได้");
+    }
+    if (this.voteCallers.has(userId)) return;
+
+    this.voteCallers.add(userId);
+    const required = requiredVoteCallers(this.players.size);
+
+    if (this.voteCallers.size >= required) {
+      this.phase = "VOTING";
+      this.appendSystemLog("เปิดโหมดโหวตแล้ว! เลือกผู้เล่นที่คุณคิดว่าเป็นสปาย");
+    } else {
+      this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+    }
+  }
+
   private handleVote(voterId: string, targetUserId: string): void {
+    if (this.phase !== "VOTING") {
+      throw new GameActionError("ต้องเปิดโหมดโหวตก่อนถึงจะโหวตได้ - กด \"ขอเปิดโหวต\" ก่อน");
+    }
     if (targetUserId === voterId) {
-      throw new GameActionError("You cannot vote for yourself");
+      throw new GameActionError("คุณโหวตตัวเองไม่ได้");
     }
     if (!this.players.has(targetUserId)) {
-      throw new GameActionError("Vote target is not in this game");
+      throw new GameActionError("ผู้เล่นที่จะโหวตไม่ได้อยู่ในเกมนี้");
     }
 
     this.votes.set(voterId, targetUserId);
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
 
     if (this.votes.size >= this.players.size) {
-      this.resolveByVotes("The group cast all their votes.");
+      this.resolveByVotes("ทุกคนโหวตครบแล้ว");
     }
   }
 
-  private handleGuess(userId: string, location: string): void {
+  // The Spy's honest self-report of whether their spoken guess (made out
+  // loud to the group, in person) was correct - the app never sees the
+  // actual guessed location text, only this yes/no.
+  private handleGuess(userId: string, correct: boolean): void {
     if (userId !== this.spyUserId) {
-      throw new GameActionError("Only the Spy can guess the location");
+      throw new GameActionError("เฉพาะสปายเท่านั้นที่ตอบได้");
     }
-    const correct = location.trim().toLowerCase() === this.location!.name.toLowerCase();
+    if (this.phase !== "VOTING") {
+      throw new GameActionError("ต้องเปิดโหมดโหวตก่อนถึงจะตอบได้ - กด \"หยุดเกมเพื่อตอบ\" ก่อน");
+    }
+
     this.conclude({
       winner: correct ? "SPY" : "NON_SPY",
       reason: correct
-        ? `The Spy correctly guessed the location: ${this.location!.name}.`
-        : `The Spy guessed "${location.trim()}", which was wrong, and is revealed.`,
+        ? "สปายทายสถานที่ถูกต้อง!"
+        : "สปายทายสถานที่ผิด และถูกเปิดเผยตัวตน",
       spyUserId: this.spyUserId!,
-      spyUsername: this.players.get(this.spyUserId!)?.username ?? "Unknown",
+      spyUsername: this.players.get(this.spyUserId!)?.username ?? "ไม่ทราบชื่อ",
       location: this.location!.name,
-      spyGuess: location.trim(),
+      spyGuessCorrect: correct,
     });
   }
 
   private forceEndByTimer(): void {
     if (this.finished) return;
-    this.resolveByVotes("Time ran out.");
+    this.resolveByVotes("หมดเวลาแล้ว");
   }
 
   private resolveByVotes(reasonPrefix: string): void {
     const usernameByUserId = new Map(this.getPlayers().map((p) => [p.userId, p.username]));
     const tally = tallyVotes(this.votes, usernameByUserId);
     const majority = resolveMajority(tally);
+
+    // A genuine tie among 2+ people (not simply "nobody voted") gives the
+    // group a second chance instead of letting the Spy escape by default.
+    if (majority === null && this.votes.size > 0 && this.tieExtensionsUsed < SPYFALL_MAX_TIE_EXTENSIONS) {
+      this.tieExtensionsUsed += 1;
+      this.votes.clear();
+      this.voteCallers.clear();
+      this.phase = "IN_PROGRESS";
+      this.beginTimer(SPYFALL_TIE_EXTENSION_SECONDS);
+      this.appendSystemLog(
+        `โหวตเสมอกัน! ต่อเวลาพิเศษให้อีก ${SPYFALL_TIE_EXTENSION_SECONDS / 60} นาที`
+      );
+      return;
+    }
+
     const spyCaught = majority !== null && majority === this.spyUserId;
 
     const votes: SpyfallRevealedVote[] = Array.from(this.votes.entries()).map(
       ([voterUserId, targetUserId]) => ({
         voterUserId,
-        voterUsername: usernameByUserId.get(voterUserId) ?? "Unknown",
+        voterUsername: usernameByUserId.get(voterUserId) ?? "ไม่ทราบชื่อ",
         targetUserId,
-        targetUsername: usernameByUserId.get(targetUserId) ?? "Unknown",
+        targetUsername: usernameByUserId.get(targetUserId) ?? "ไม่ทราบชื่อ",
       })
     );
 
     let reason: string;
     if (this.votes.size === 0) {
-      reason = `${reasonPrefix} No one voted, so the Spy escapes.`;
+      reason = `${reasonPrefix} ไม่มีใครโหวตเลย สปายจึงรอดตัวไป`;
     } else if (majority === null) {
-      reason = `${reasonPrefix} The vote ended in a tie, so the Spy escapes.`;
+      reason = `${reasonPrefix} โหวตเสมอกัน สปายจึงรอดตัวไป`;
     } else if (spyCaught) {
-      reason = `${reasonPrefix} The group correctly voted out ${usernameByUserId.get(majority)}, the Spy.`;
+      reason = `${reasonPrefix} กลุ่มโหวตถูกคน! ${usernameByUserId.get(majority)} คือสปาย`;
     } else {
-      reason = `${reasonPrefix} The group voted out ${usernameByUserId.get(majority)}, who was not the Spy.`;
+      reason = `${reasonPrefix} กลุ่มโหวตผิดคน ${usernameByUserId.get(majority)} ไม่ใช่สปาย`;
     }
 
     this.conclude({
       winner: spyCaught ? "NON_SPY" : "SPY",
       reason,
       spyUserId: this.spyUserId!,
-      spyUsername: usernameByUserId.get(this.spyUserId!) ?? "Unknown",
+      spyUsername: usernameByUserId.get(this.spyUserId!) ?? "ไม่ทราบชื่อ",
       location: this.location!.name,
       voteTally: tally,
       votes,
@@ -236,10 +346,14 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
 
+  private appendSystemLog(text: string): void {
+    this.appendLog({ id: randomUUID(), type: "system", text, timestamp: Date.now() });
+  }
+
   getPublicState(): SpyfallPublicState {
     return {
       phase: this.phase,
-      timerDurationSeconds: SPYFALL_TIMER_SECONDS,
+      timerDurationSeconds: this.discussionSeconds,
       timerEndsAt: this.timerEndsAt,
       players: this.getPlayers().map((p) => ({
         userId: p.userId,
@@ -249,6 +363,8 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       })),
       log: this.log,
       result: this.finished ? this.result : null,
+      voteCallers: Array.from(this.voteCallers),
+      requiredVoteCallers: requiredVoteCallers(this.players.size),
     };
   }
 
@@ -272,12 +388,12 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       // conclusion was reached - record it without declaring a winner.
       this.conclude({
         winner: "SPY",
-        reason: "The game was ended before a result was reached.",
+        reason: "เกมถูกจบก่อนที่จะได้ผลลัพธ์",
         spyUserId: this.spyUserId ?? "unknown",
         spyUsername: this.spyUserId
-          ? this.players.get(this.spyUserId)?.username ?? "Unknown"
-          : "Unknown",
-        location: this.location?.name ?? "Unknown",
+          ? this.players.get(this.spyUserId)?.username ?? "ไม่ทราบชื่อ"
+          : "ไม่ทราบชื่อ",
+        location: this.location?.name ?? "ไม่ทราบชื่อ",
       });
     }
 

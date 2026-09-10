@@ -16,12 +16,12 @@ export function RoomCodeBadge({ code }: { code: string }) {
   return (
     <button
       onClick={handleCopy}
-      title="Click to copy"
+      title="คลิกเพื่อคัดลอก"
       className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 font-mono text-xl tracking-[0.3em] text-white hover:border-brand-500"
     >
       {code}
       <span className="text-xs font-sans tracking-normal text-slate-400">
-        {copied ? "Copied!" : "Copy"}
+        {copied ? "คัดลอกแล้ว!" : "คัดลอก"}
       </span>
     </button>
   );

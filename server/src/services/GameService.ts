@@ -36,7 +36,7 @@ export const GameService = {
 
   async getBySlug(slug: string) {
     const game = await prisma.game.findUnique({ where: { slug } });
-    if (!game) throw ApiError.notFound(`Game "${slug}" not found`);
+    if (!game) throw ApiError.notFound(`ไม่พบเกม "${slug}"`);
     return game;
   },
 

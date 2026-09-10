@@ -31,8 +31,8 @@ export function JoinRoom() {
       setRoom(data.room);
       navigate(`/lobby/${data.room.roomCode}`);
     } catch (err) {
-      const message = extractErrorMessage(err, "Could not join room");
-      if (message.toLowerCase().includes("password")) {
+      const message = extractErrorMessage(err, "เข้าห้องไม่สำเร็จ");
+      if (message.includes("รหัสผ่าน")) {
         setNeedsPassword(true);
       }
       setError(message);
@@ -46,13 +46,13 @@ export function JoinRoom() {
       <Navbar />
       <main className="mx-auto max-w-md px-6 py-10">
         <Card>
-          <h1 className="text-xl font-semibold text-white">Join a room</h1>
-          <p className="mt-1 text-sm text-slate-400">Enter the room code your host shared.</p>
+          <h1 className="text-xl font-semibold text-white">เข้าร่วมห้อง</h1>
+          <p className="mt-1 text-sm text-slate-400">กรอกรหัสห้องที่โฮสต์ส่งให้คุณ</p>
 
           <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
             <Input
               id="roomCode"
-              label="Room Code"
+              label="รหัสห้อง"
               required
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
@@ -65,7 +65,7 @@ export function JoinRoom() {
               <Input
                 id="password"
                 type="password"
-                label="Room Password"
+                label="รหัสผ่านห้อง"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -76,7 +76,7 @@ export function JoinRoom() {
             {error && <p className="text-sm text-red-400">{error}</p>}
 
             <Button type="submit" isLoading={isLoading} className="mt-2 w-full">
-              Join Room
+              เข้าร่วมห้อง
             </Button>
           </form>
         </Card>

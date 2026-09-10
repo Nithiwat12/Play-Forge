@@ -1,4 +1,6 @@
 import { prisma } from "../config/prisma";
+import { RoomService } from "./RoomService";
+import type { PublicRoom } from "../types";
 
 export interface HistoryEntry {
   gameSessionId: string;
@@ -45,5 +47,24 @@ export const UserService = {
       finishedAt: session.finishedAt ? session.finishedAt.toISOString() : null,
       resultData: session.history[0]?.resultData ?? null,
     }));
+  },
+
+  // Rooms this user is still an active seat in (not WAITING/FINISHED with
+  // leftAt set) - lets someone who accidentally hit "leave game" (or just
+  // closed the tab) find their way back in from the History page.
+  async getActiveRoomsForUser(userId: string): Promise<PublicRoom[]> {
+    const rooms = await prisma.room.findMany({
+      where: {
+        status: { in: ["WAITING", "PLAYING"] },
+        players: {
+          some: { userId, leftAt: null },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+      select: { id: true },
+    });
+
+    return Promise.all(rooms.map((r) => RoomService.getPublicRoomById(r.id)));
   },
 };

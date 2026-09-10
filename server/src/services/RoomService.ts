@@ -5,7 +5,7 @@ import { ApiError } from "../utils/ApiError";
 import { generateRoomCode } from "../utils/roomCode";
 import { GameService } from "./GameService";
 import type { CreateRoomInput, JoinRoomInput } from "../utils/validators";
-import type { PublicRoom, PublicRoomPlayer } from "../types";
+import type { PublicRoom, PublicRoomPlayer, RoomSettings } from "../types";
 
 const ROOM_PASSWORD_SALT_ROUNDS = 10;
 const MAX_CODE_ATTEMPTS = 10;
@@ -54,6 +54,7 @@ function toPublicRoom(room: RoomWithRelations): PublicRoom {
     },
     hostId: room.hostId,
     players,
+    settings: (room.settings as RoomSettings | null) ?? null,
     createdAt: room.createdAt.toISOString(),
   };
 }
@@ -64,7 +65,7 @@ async function generateUniqueRoomCode(): Promise<string> {
     const existing = await prisma.room.findUnique({ where: { roomCode: code } });
     if (!existing) return code;
   }
-  throw ApiError.internal("Could not generate a unique room code, please try again");
+  throw ApiError.internal("สร้างรหัสห้องไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
 }
 
 async function findByCode(roomCode: string): Promise<RoomWithRelations> {
@@ -72,7 +73,7 @@ async function findByCode(roomCode: string): Promise<RoomWithRelations> {
     where: { roomCode: roomCode.toUpperCase() },
     include: roomWithRelations,
   });
-  if (!room) throw ApiError.notFound("Room not found");
+  if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
   return room;
 }
 
@@ -81,7 +82,7 @@ async function findById(roomId: string): Promise<RoomWithRelations> {
     where: { id: roomId },
     include: roomWithRelations,
   });
-  if (!room) throw ApiError.notFound("Room not found");
+  if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
   return room;
 }
 
@@ -95,11 +96,11 @@ async function findById(roomId: string): Promise<RoomWithRelations> {
 export const RoomService = {
   async createRoom(hostId: string, input: CreateRoomInput): Promise<PublicRoom> {
     const game = await GameService.getBySlug(input.gameSlug);
-    if (!game.isActive) throw ApiError.badRequest(`Game "${input.gameSlug}" is not available`);
+    if (!game.isActive) throw ApiError.badRequest(`เกม "${input.gameSlug}" ไม่พร้อมใช้งาน`);
 
     if (input.maxPlayers > game.maxPlayers || input.maxPlayers < game.minPlayers) {
       throw ApiError.badRequest(
-        `${game.name} supports between ${game.minPlayers} and ${game.maxPlayers} players`
+        `${game.name} รองรับผู้เล่นระหว่าง ${game.minPlayers} ถึง ${game.maxPlayers} คน`
       );
     }
 
@@ -109,6 +110,18 @@ export const RoomService = {
         ? await bcrypt.hash(input.password, ROOM_PASSWORD_SALT_ROUNDS)
         : null;
 
+    // Minutes are friendlier for a host to type; the engine works in
+    // seconds, so the conversion happens once, right at creation time.
+    const settings: RoomSettings | undefined = input.settings
+      ? {
+          discussionSeconds: input.settings.discussionMinutes
+            ? input.settings.discussionMinutes * 60
+            : undefined,
+          customLocations: input.settings.customLocations,
+          onlyCustomLocations: input.settings.onlyCustomLocations,
+        }
+      : undefined;
+
     const room = await prisma.room.create({
       data: {
         gameId: game.id,
@@ -117,6 +130,7 @@ export const RoomService = {
         hostId,
         passwordHash,
         maxPlayers: input.maxPlayers,
+        settings: settings as any,
         players: {
           create: {
             userId: hostId,
@@ -155,20 +169,20 @@ export const RoomService = {
     }
 
     if (room.status !== "WAITING") {
-      throw ApiError.conflict("This game has already started");
+      throw ApiError.conflict("เกมนี้เริ่มไปแล้ว");
     }
 
     if (room.players.length >= room.maxPlayers) {
-      throw ApiError.conflict("This room is full");
+      throw ApiError.conflict("ห้องนี้เต็มแล้ว");
     }
 
     if (room.passwordHash) {
       if (!input.password) {
-        throw ApiError.forbidden("This room requires a password");
+        throw ApiError.forbidden("ห้องนี้ต้องใช้รหัสผ่าน");
       }
       const valid = await bcrypt.compare(input.password, room.passwordHash);
       if (!valid) {
-        throw ApiError.forbidden("Incorrect room password");
+        throw ApiError.forbidden("รหัสผ่านห้องไม่ถูกต้อง");
       }
     }
 
@@ -239,7 +253,7 @@ export const RoomService = {
   async setReadyById(userId: string, roomId: string, isReady: boolean): Promise<PublicRoom> {
     const room = await findById(roomId);
     const player = room.players.find((p) => p.userId === userId);
-    if (!player) throw ApiError.forbidden("You are not in this room");
+    if (!player) throw ApiError.forbidden("คุณไม่ได้อยู่ในห้องนี้");
 
     await prisma.roomPlayer.update({ where: { id: player.id }, data: { isReady } });
     return toPublicRoom(await findById(roomId));
@@ -251,14 +265,14 @@ export const RoomService = {
     const room = await findById(roomId);
 
     if (room.hostId !== userId) {
-      throw ApiError.forbidden("Only the host can start the game");
+      throw ApiError.forbidden("เฉพาะโฮสต์เท่านั้นที่เริ่มเกมได้");
     }
     if (room.status !== "WAITING") {
-      throw ApiError.conflict("Game has already started or finished");
+      throw ApiError.conflict("เกมเริ่มไปแล้วหรือจบไปแล้ว");
     }
     if (room.players.length < room.game.minPlayers) {
       throw ApiError.badRequest(
-        `${room.game.name} needs at least ${room.game.minPlayers} players to start`
+        `${room.game.name} ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คนถึงจะเริ่มได้`
       );
     }
 

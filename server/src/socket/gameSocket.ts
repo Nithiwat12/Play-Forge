@@ -73,7 +73,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
       const room = await RoomService.assertCanStart(userId, roomId);
       const players = room.players.map((p) => ({ userId: p.userId, username: p.user.username }));
 
-      const game = GameManager.startGame(room.id, room.game.slug, players);
+      const game = GameManager.startGame(room.id, room.game.slug, players, room.settings ?? undefined);
 
       const session = await GameSessionService.createSession(room.id, room.gameId);
       activeSessions.set(room.id, { sessionId: session.id });
@@ -93,7 +93,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
 
       ack({ ok: true });
     } catch (err) {
-      ack({ ok: false, error: err instanceof Error ? err.message : "Failed to start game" });
+      ack({ ok: false, error: err instanceof Error ? err.message : "เริ่มเกมไม่สำเร็จ" });
     }
   });
 
@@ -112,7 +112,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
         GameManager.handleAction(roomId, userId, actionType, payload);
         ack({ ok: true });
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Invalid game action";
+        const message = err instanceof Error ? err.message : "การกระทำในเกมไม่ถูกต้อง";
         socket.emit("game:error", { message });
         ack({ ok: false, error: message });
       }
@@ -126,12 +126,12 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
     try {
       const room = await RoomService.getRoomById(roomId);
       if (room.hostId !== userId) {
-        throw new Error("Only the host can end the game");
+        throw new Error("เฉพาะโฮสต์เท่านั้นที่จบเกมได้");
       }
       await finalizeGame(io, roomId);
       ack({ ok: true });
     } catch (err) {
-      ack({ ok: false, error: err instanceof Error ? err.message : "Failed to end game" });
+      ack({ ok: false, error: err instanceof Error ? err.message : "จบเกมไม่สำเร็จ" });
     }
   });
 }

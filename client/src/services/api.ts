@@ -29,7 +29,7 @@ api.interceptors.response.use(
   }
 );
 
-export function extractErrorMessage(err: unknown, fallback = "Something went wrong"): string {
+export function extractErrorMessage(err: unknown, fallback = "เกิดข้อผิดพลาดบางอย่าง"): string {
   if (axios.isAxiosError(err)) {
     return err.response?.data?.error?.message ?? fallback;
   }

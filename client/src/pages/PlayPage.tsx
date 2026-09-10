@@ -3,7 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../components/common/Navbar";
 import { Spinner } from "../components/common/Spinner";
 import { Card } from "../components/common/Card";
-import { connectSocket, emitWithAck } from "../services/socket";
+import { Button } from "../components/common/Button";
+import { ConfirmModal } from "../components/common/ConfirmModal";
+import { connectSocket, emitWithAck, getSocket } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
 import { useGameStore } from "../stores/gameStore";
 import { useAuthStore } from "../stores/authStore";
@@ -15,11 +17,12 @@ export function PlayPage() {
   const { roomCode } = useParams<{ roomCode: string }>();
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
-  const { room, setRoom } = useRoomStore();
+  const { room, setRoom, clearRoom } = useRoomStore();
   const { publicState, privateState, setState, clear } = useGameStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
   useEffect(() => {
     if (!roomCode) return;
@@ -40,7 +43,7 @@ export function PlayPage() {
           navigate(`/lobby/${response.room.roomCode}`, { replace: true });
         }
       } catch (err) {
-        if (!cancelled) setError(extractErrorMessage(err, "Could not reach the game"));
+        if (!cancelled) setError(extractErrorMessage(err, "ไม่สามารถเข้าเกมได้"));
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -72,6 +75,15 @@ export function PlayPage() {
     return response.ok ? { ok: true } : { ok: false, error: response.error };
   }
 
+  function handleConfirmLeave() {
+    if (room) {
+      getSocket()?.emit("room:leave", { roomId: room.id });
+    }
+    clearRoom();
+    clear();
+    navigate("/home");
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen">
@@ -87,7 +99,7 @@ export function PlayPage() {
         <Navbar />
         <main className="mx-auto max-w-md px-6 py-10">
           <Card>
-            <p className="text-sm text-red-400">{error ?? "Room not found"}</p>
+            <p className="text-sm text-red-400">{error ?? "ไม่พบห้องนี้"}</p>
           </Card>
         </main>
       </div>
@@ -108,6 +120,11 @@ export function PlayPage() {
   return (
     <div className="min-h-screen">
       <Navbar />
+      <div className="mx-auto flex max-w-4xl items-center justify-end px-6 pt-6 lg:max-w-none lg:px-6">
+        <Button variant="ghost" onClick={() => setShowLeaveConfirm(true)}>
+          ออกจากเกม
+        </Button>
+      </div>
       <GameComponent
         room={room}
         publicState={publicState}
@@ -115,6 +132,16 @@ export function PlayPage() {
         selfUserId={currentUser?.id}
         onAction={handleAction}
       />
+      {showLeaveConfirm && (
+        <ConfirmModal
+          title="ออกจากเกม?"
+          message="ถ้าออกตอนนี้ คุณจะพลาดสิ่งที่เกิดขึ้นระหว่างที่ไม่อยู่ แต่กลับเข้ามาเล่นต่อได้ทุกเมื่อ (หน้าประวัติเกม จะมีปุ่มให้กลับเข้าห้องนี้)"
+          confirmLabel="ออกจากเกม"
+          cancelLabel="เล่นต่อ"
+          onConfirm={handleConfirmLeave}
+          onCancel={() => setShowLeaveConfirm(false)}
+        />
+      )}
     </div>
   );
 }

@@ -38,7 +38,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
         io.to(room.id).emit("room:update", { room: updated });
         ack({ ok: true, room: updated });
       } catch (err) {
-        ack({ ok: false, error: err instanceof Error ? err.message : "Failed to join room" });
+        ack({ ok: false, error: err instanceof Error ? err.message : "เข้าห้องไม่สำเร็จ" });
       }
     }
   );
@@ -58,7 +58,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
       }
       ack({ ok: true });
     } catch (err) {
-      ack({ ok: false, error: err instanceof Error ? err.message : "Failed to leave room" });
+      ack({ ok: false, error: err instanceof Error ? err.message : "ออกจากห้องไม่สำเร็จ" });
     }
   });
 
@@ -72,7 +72,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
       } catch (err) {
         ack({
           ok: false,
-          error: err instanceof Error ? err.message : "Failed to update ready state",
+          error: err instanceof Error ? err.message : "อัปเดตสถานะความพร้อมไม่สำเร็จ",
         });
       }
     }

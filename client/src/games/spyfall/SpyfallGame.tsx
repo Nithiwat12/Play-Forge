@@ -24,11 +24,12 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
   const [targetUserId, setTargetUserId] = useState<string>("");
   const [questionText, setQuestionText] = useState("");
   const [answerText, setAnswerText] = useState("");
-  const [guessText, setGuessText] = useState("");
   const [myVoteTargetId, setMyVoteTargetId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isFinished = publicState.phase === "FINISHED";
+  const isVoting = publicState.phase === "VOTING";
+  const hasCalledVote = Boolean(selfUserId && publicState.voteCallers.includes(selfUserId));
 
   const otherPlayers = useMemo(
     () => publicState.players.filter((p) => p.userId !== selfUserId),
@@ -39,7 +40,7 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
     setActionError(null);
     const result = await onAction(actionType, payload);
     if (!result.ok) {
-      setActionError(result.error ?? "Action failed");
+      setActionError(result.error ?? "การกระทำล้มเหลว");
     } else {
       onSuccess?.();
     }
@@ -57,15 +58,18 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
     await runAction(SPYFALL_ACTIONS.ANSWER, { text: answerText }, () => setAnswerText(""));
   }
 
+  async function handleCallVote() {
+    await runAction(SPYFALL_ACTIONS.CALL_VOTE, {});
+  }
+
   async function handleVote(voteTargetUserId: string) {
     await runAction(SPYFALL_ACTIONS.VOTE, { targetUserId: voteTargetUserId }, () =>
       setMyVoteTargetId(voteTargetUserId)
     );
   }
 
-  async function handleGuessSubmit() {
-    if (!guessText.trim()) return;
-    await runAction(SPYFALL_ACTIONS.GUESS, { location: guessText });
+  async function handleGuess(correct: boolean) {
+    await runAction(SPYFALL_ACTIONS.GUESS, { correct });
   }
 
   return (
@@ -84,32 +88,32 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
         {isFinished && publicState.result && (
           <Card className="border-brand-700">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-400">
-              Game Over
+              จบเกมแล้ว
             </p>
             <h2 className="mt-1 text-lg font-semibold text-white">
-              {publicState.result.winner === "SPY" ? "The Spy wins!" : "The crew wins!"}
+              {publicState.result.winner === "SPY" ? "สปายชนะ!" : "กลุ่มผู้เล่นชนะ!"}
             </h2>
             <p className="mt-2 text-sm text-slate-300">{publicState.result.reason}</p>
             <p className="mt-2 text-sm text-slate-400">
-              The Spy was <span className="text-white">{publicState.result.spyUsername}</span> -
-              the location was <span className="text-white">{publicState.result.location}</span>.
+              สปายคือ <span className="text-white">{publicState.result.spyUsername}</span> -
+              สถานที่คือ <span className="text-white">{publicState.result.location}</span>
             </p>
             <Button className="mt-4" onClick={() => navigate(`/lobby/${room.roomCode}`)}>
-              Back to Lobby
+              กลับไปที่ล็อบบี้
             </Button>
           </Card>
         )}
 
-        {!isFinished && (
+        {!isFinished && !isVoting && (
           <Card>
-            <h2 className="text-sm font-semibold text-slate-300">Ask a question</h2>
+            <h2 className="text-sm font-semibold text-slate-300">ถามคำถาม</h2>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <select
                 value={targetUserId}
                 onChange={(e) => setTargetUserId(e.target.value)}
                 className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-100"
               >
-                <option value="">Choose a player...</option>
+                <option value="">เลือกผู้เล่น...</option>
                 {otherPlayers.map((p) => (
                   <option key={p.userId} value={p.userId}>
                     {p.username}
@@ -119,45 +123,86 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
               <Input
                 value={questionText}
                 onChange={(e) => setQuestionText(e.target.value)}
-                placeholder="e.g. What's the weather like there?"
+                placeholder="เช่น ที่นั่นอากาศเป็นยังไงบ้าง?"
                 className="flex-1"
               />
               <Button onClick={handleAskSubmit} disabled={!targetUserId || !questionText.trim()}>
-                Ask
+                ถาม
               </Button>
             </div>
 
-            <h2 className="mt-5 text-sm font-semibold text-slate-300">Answer</h2>
+            <h2 className="mt-5 text-sm font-semibold text-slate-300">ตอบคำถาม</h2>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Input
                 value={answerText}
                 onChange={(e) => setAnswerText(e.target.value)}
-                placeholder="Type your answer..."
+                placeholder="พิมพ์คำตอบของคุณ..."
                 className="flex-1"
               />
               <Button variant="secondary" onClick={handleAnswerSubmit} disabled={!answerText.trim()}>
-                Answer
+                ตอบ
               </Button>
             </div>
 
-            {privateState.isSpy && (
-              <>
-                <h2 className="mt-5 text-sm font-semibold text-red-400">Guess the location</h2>
-                <p className="text-xs text-slate-500">
-                  Guess correctly to win instantly - guess wrong and you lose immediately.
+            <h2 className="mt-5 text-sm font-semibold text-slate-300">
+              {privateState.isSpy ? "หยุดเกมเพื่อทาย" : "ขอเปิดโหวต"}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {privateState.isSpy
+                ? "ถ้าคิดว่าทายสถานที่ได้แล้ว กดปุ่มนี้เพื่อหยุดการพูดคุยและเข้าสู่โหมดโหวต แล้วบอกคำทายของคุณออกมาดัง ๆ ให้เพื่อนฟัง"
+                : "ถ้าคิดว่ารู้แล้วว่าใครคือสปาย กดปุ่มนี้เพื่อขอเปิดโหวต ต้องได้เสียงข้างมากก่อนถึงจะเข้าสู่โหมดโหวตได้"}
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <Button
+                variant={privateState.isSpy ? "danger" : "secondary"}
+                onClick={handleCallVote}
+                disabled={hasCalledVote}
+              >
+                {hasCalledVote
+                  ? "รอเพื่อนคนอื่น..."
+                  : privateState.isSpy
+                    ? "หยุดเกม (ขอตอบ)"
+                    : "ขอเปิดโหวต"}
+              </Button>
+              <span className="text-xs text-slate-500">
+                {publicState.voteCallers.length} / {publicState.requiredVoteCallers} คนขอโหวตแล้ว
+              </span>
+            </div>
+
+            {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
+          </Card>
+        )}
+
+        {isVoting && (
+          <Card className="border-amber-700">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-400">
+              โหมดโหวต
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-white">ถึงเวลาโหวตหาสปายแล้ว!</h2>
+
+            {privateState.isSpy ? (
+              <div className="mt-4 rounded-xl border border-red-800 bg-red-950/50 p-4">
+                <p className="text-sm text-red-200">
+                  บอกคำทายสถานที่ของคุณออกมาดัง ๆ ให้เพื่อนฟัง แล้วกดปุ่มด้านล่างตามจริงว่าทายถูกหรือผิด
                 </p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    value={guessText}
-                    onChange={(e) => setGuessText(e.target.value)}
-                    placeholder="e.g. Airport"
-                    className="flex-1"
-                  />
-                  <Button variant="danger" onClick={handleGuessSubmit} disabled={!guessText.trim()}>
-                    Guess
+                <div className="mt-3 flex gap-3">
+                  <Button variant="primary" onClick={() => handleGuess(true)}>
+                    ทายถูก
+                  </Button>
+                  <Button variant="danger" onClick={() => handleGuess(false)}>
+                    ทายผิด
                   </Button>
                 </div>
-              </>
+              </div>
+            ) : (
+              <div className="mt-4">
+                <Voting
+                  players={publicState.players}
+                  selfUserId={selfUserId}
+                  myVoteTargetId={myVoteTargetId}
+                  onVote={handleVote}
+                />
+              </div>
             )}
 
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
@@ -165,50 +210,45 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
         )}
 
         <Card>
-          <h2 className="text-sm font-semibold text-slate-300">Conversation</h2>
+          <h2 className="text-sm font-semibold text-slate-300">บทสนทนา</h2>
           <div className="mt-3 flex max-h-72 flex-col gap-2 overflow-y-auto">
             {publicState.log.length === 0 && (
-              <p className="text-sm text-slate-500">No questions yet - break the ice!</p>
+              <p className="text-sm text-slate-500">ยังไม่มีการถามคำถาม - เริ่มบทสนทนากันเลย!</p>
             )}
-            {publicState.log.map((entry) => (
-              <div key={entry.id} className="rounded-lg bg-slate-900/70 px-3 py-2 text-sm">
-                <span className="font-medium text-slate-200">{entry.fromUsername}</span>
-                {entry.type === "question" && entry.toUsername && (
-                  <span className="text-slate-500"> asks {entry.toUsername}</span>
-                )}
-                {entry.type === "answer" && <span className="text-slate-500"> answers</span>}
-                <span className="text-slate-300">: {entry.text}</span>
-              </div>
-            ))}
+            {publicState.log.map((entry) => {
+              if (entry.type === "system") {
+                return (
+                  <div key={entry.id} className="text-center text-xs italic text-amber-400">
+                    {entry.text}
+                  </div>
+                );
+              }
+              return (
+                <div key={entry.id} className="rounded-lg bg-slate-900/70 px-3 py-2 text-sm">
+                  <span className="font-medium text-slate-200">{entry.fromUsername}</span>
+                  {entry.type === "question" && entry.toUsername && (
+                    <span className="text-slate-500"> ถาม {entry.toUsername}</span>
+                  )}
+                  {entry.type === "answer" && <span className="text-slate-500"> ตอบว่า</span>}
+                  <span className="text-slate-300">: {entry.text}</span>
+                </div>
+              );
+            })}
           </div>
         </Card>
       </div>
 
       <div className="flex flex-col gap-6">
         <Card>
-          <h2 className="text-sm font-semibold text-slate-300">Players</h2>
+          <h2 className="text-sm font-semibold text-slate-300">ผู้เล่น</h2>
           <div className="mt-3">
             <PlayerList
               players={publicState.players}
               selfUserId={selfUserId}
-              onAsk={(userId) => setTargetUserId(userId)}
+              onAsk={!isFinished && !isVoting ? (userId) => setTargetUserId(userId) : undefined}
             />
           </div>
         </Card>
-
-        {!isFinished && (
-          <Card>
-            <h2 className="text-sm font-semibold text-slate-300">Vote out the Spy</h2>
-            <div className="mt-3">
-              <Voting
-                players={publicState.players}
-                selfUserId={selfUserId}
-                myVoteTargetId={myVoteTargetId}
-                onVote={handleVote}
-              />
-            </div>
-          </Card>
-        )}
       </div>
     </div>
   );

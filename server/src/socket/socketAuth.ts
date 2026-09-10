@@ -36,7 +36,7 @@ export function socketAuthMiddleware(socket: AppSocket, next: (err?: Error) => v
       : undefined);
 
   if (!token) {
-    return next(new Error("Authentication required"));
+    return next(new Error("ต้องเข้าสู่ระบบก่อน"));
   }
 
   try {
@@ -44,6 +44,6 @@ export function socketAuthMiddleware(socket: AppSocket, next: (err?: Error) => v
     socket.data.user = { id: decoded.sub, username: decoded.username, email: decoded.email };
     next();
   } catch {
-    next(new Error("Invalid or expired token"));
+    next(new Error("โทเคนไม่ถูกต้องหรือหมดอายุ"));
   }
 }

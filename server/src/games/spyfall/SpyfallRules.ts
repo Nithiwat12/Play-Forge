@@ -12,6 +12,12 @@ export const SPYFALL_MAX_PLAYERS = 8;
 export const SPYFALL_TIMER_SECONDS = 8 * 60; // 8 minute round, classic default
 export const SPYFALL_MAX_TEXT_LENGTH = 300;
 
+// When a vote ends in a tie, the group gets this many extra seconds to
+// keep talking instead of the Spy automatically escaping.
+export const SPYFALL_TIE_EXTENSION_SECONDS = 5 * 60;
+// Safety cap so a group that keeps tying can't stall the round forever.
+export const SPYFALL_MAX_TIE_EXTENSIONS = 2;
+
 // --- Payload validation -----------------------------------------------
 // Every payload arriving over the socket is untyped `unknown` at the
 // boundary; these functions are the single place that turns it into a
@@ -24,55 +30,62 @@ function isNonEmptyString(value: unknown): value is string {
 
 export function validateQuestionPayload(payload: unknown): SpyfallQuestionPayload {
   if (typeof payload !== "object" || payload === null) {
-    throw new GameActionError("Invalid question payload");
+    throw new GameActionError("ข้อมูลคำถามไม่ถูกต้อง");
   }
   const { toUserId, text } = payload as Record<string, unknown>;
   if (!isNonEmptyString(toUserId)) {
-    throw new GameActionError("A target player is required to ask a question");
+    throw new GameActionError("ต้องเลือกผู้เล่นที่จะถามด้วย");
   }
   if (!isNonEmptyString(text)) {
-    throw new GameActionError("Question text is required");
+    throw new GameActionError("กรุณากรอกคำถาม");
   }
   if (text.length > SPYFALL_MAX_TEXT_LENGTH) {
-    throw new GameActionError(`Question text must be under ${SPYFALL_MAX_TEXT_LENGTH} characters`);
+    throw new GameActionError(`คำถามต้องมีความยาวไม่เกิน ${SPYFALL_MAX_TEXT_LENGTH} ตัวอักษร`);
   }
   return { toUserId, text: text.trim() };
 }
 
 export function validateAnswerPayload(payload: unknown): SpyfallAnswerPayload {
   if (typeof payload !== "object" || payload === null) {
-    throw new GameActionError("Invalid answer payload");
+    throw new GameActionError("ข้อมูลคำตอบไม่ถูกต้อง");
   }
   const { text } = payload as Record<string, unknown>;
   if (!isNonEmptyString(text)) {
-    throw new GameActionError("Answer text is required");
+    throw new GameActionError("กรุณากรอกคำตอบ");
   }
   if (text.length > SPYFALL_MAX_TEXT_LENGTH) {
-    throw new GameActionError(`Answer text must be under ${SPYFALL_MAX_TEXT_LENGTH} characters`);
+    throw new GameActionError(`คำตอบต้องมีความยาวไม่เกิน ${SPYFALL_MAX_TEXT_LENGTH} ตัวอักษร`);
   }
   return { text: text.trim() };
 }
 
 export function validateVotePayload(payload: unknown): SpyfallVotePayload {
   if (typeof payload !== "object" || payload === null) {
-    throw new GameActionError("Invalid vote payload");
+    throw new GameActionError("ข้อมูลการโหวตไม่ถูกต้อง");
   }
   const { targetUserId } = payload as Record<string, unknown>;
   if (!isNonEmptyString(targetUserId)) {
-    throw new GameActionError("A vote target is required");
+    throw new GameActionError("ต้องเลือกผู้เล่นที่จะโหวต");
   }
   return { targetUserId };
 }
 
 export function validateGuessPayload(payload: unknown): SpyfallGuessPayload {
   if (typeof payload !== "object" || payload === null) {
-    throw new GameActionError("Invalid guess payload");
+    throw new GameActionError("ข้อมูลการตอบไม่ถูกต้อง");
   }
-  const { location } = payload as Record<string, unknown>;
-  if (!isNonEmptyString(location)) {
-    throw new GameActionError("A location guess is required");
+  const { correct } = payload as Record<string, unknown>;
+  if (typeof correct !== "boolean") {
+    throw new GameActionError("ต้องระบุว่าตอบถูกหรือตอบผิด");
   }
-  return { location };
+  return { correct };
+}
+
+// --- Vote call threshold -------------------------------------------------
+
+/** A simple majority (more than half) of current players must call for a vote. */
+export function requiredVoteCallers(playerCount: number): number {
+  return Math.floor(playerCount / 2) + 1;
 }
 
 // --- Vote resolution -----------------------------------------------------
@@ -88,7 +101,7 @@ export function tallyVotes(
 
   const tally: SpyfallVoteTally[] = Array.from(counts.entries()).map(([targetUserId, count]) => ({
     targetUserId,
-    targetUsername: usernameByUserId.get(targetUserId) ?? "Unknown",
+    targetUsername: usernameByUserId.get(targetUserId) ?? "ไม่ทราบชื่อ",
     count,
   }));
 

@@ -23,19 +23,19 @@ export function Navbar() {
     <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <Link to="/home" className="text-lg font-semibold text-white">
-          🎲 Play Forge
+          🎲 แพลตฟอร์มเกมกระดาน
         </Link>
         {user && (
           <nav className="flex items-center gap-4">
             <Link to="/home" className="text-sm text-slate-300 hover:text-white">
-              Library
+              คลังเกม
             </Link>
             <Link to="/history" className="text-sm text-slate-300 hover:text-white">
-              History
+              ประวัติ
             </Link>
             <span className="text-sm text-slate-500">{user.username}</span>
             <Button variant="secondary" onClick={handleLogout}>
-              Logout
+              ออกจากระบบ
             </Button>
           </nav>
         )}

@@ -18,7 +18,7 @@ export function Home() {
         if (!cancelled) setGames(data.games);
       })
       .catch((err) => {
-        if (!cancelled) setError(extractErrorMessage(err, "Could not load games"));
+        if (!cancelled) setError(extractErrorMessage(err, "โหลดรายการเกมไม่สำเร็จ"));
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -32,9 +32,9 @@ export function Home() {
     <div className="min-h-screen">
       <Navbar />
       <main className="mx-auto max-w-6xl px-6 py-10">
-        <h1 className="text-2xl font-semibold text-white">Game Library</h1>
+        <h1 className="text-2xl font-semibold text-white">คลังเกม</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Pick a game to create or join a room. New games appear here automatically.
+          เลือกเกมเพื่อสร้างหรือเข้าร่วมห้อง เกมใหม่จะแสดงที่นี่โดยอัตโนมัติ
         </p>
 
         {isLoading && <Spinner className="mt-16" />}

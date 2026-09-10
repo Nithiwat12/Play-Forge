@@ -6,22 +6,22 @@ export function PlayerListItem({ player, isSelf }: { player: RoomPlayer; isSelf:
       <div className="flex items-center gap-2">
         <span
           className={`h-2 w-2 rounded-full ${player.connected ? "bg-emerald-500" : "bg-slate-600"}`}
-          title={player.connected ? "Connected" : "Disconnected"}
+          title={player.connected ? "ออนไลน์" : "ออฟไลน์"}
         />
         <span className="text-sm font-medium text-slate-100">
           {player.username}
-          {isSelf && <span className="text-slate-500"> (you)</span>}
+          {isSelf && <span className="text-slate-500"> (คุณ)</span>}
         </span>
         {player.isHost && (
           <span className="rounded bg-brand-800 px-2 py-0.5 text-[10px] font-semibold uppercase text-brand-200">
-            Host
+            โฮสต์
           </span>
         )}
       </div>
       <span
         className={`text-xs font-medium ${player.isReady ? "text-emerald-400" : "text-slate-500"}`}
       >
-        {player.isReady ? "Ready" : "Not ready"}
+        {player.isReady ? "พร้อมแล้ว" : "ยังไม่พร้อม"}
       </span>
     </li>
   );

@@ -28,7 +28,7 @@ export function Login() {
       setAuth(data.user, data.token);
       navigate("/home");
     } catch (err) {
-      setError(extractErrorMessage(err, "Could not log in"));
+      setError(extractErrorMessage(err, "เข้าสู่ระบบไม่สำเร็จ"));
     } finally {
       setIsLoading(false);
     }
@@ -37,13 +37,13 @@ export function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
-        <h1 className="mb-1 text-2xl font-semibold text-white">Welcome back</h1>
-        <p className="mb-6 text-sm text-slate-400">Log in to join the game.</p>
+        <h1 className="mb-1 text-2xl font-semibold text-white">ยินดีต้อนรับกลับมา</h1>
+        <p className="mb-6 text-sm text-slate-400">เข้าสู่ระบบเพื่อร่วมเล่นเกม</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input
             id="email"
             type="email"
-            label="Email"
+            label="อีเมล"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -52,7 +52,7 @@ export function Login() {
           <Input
             id="password"
             type="password"
-            label="Password"
+            label="รหัสผ่าน"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -60,13 +60,13 @@ export function Login() {
           />
           {error && <p className="text-sm text-red-400">{error}</p>}
           <Button type="submit" isLoading={isLoading} className="mt-2 w-full">
-            Log in
+            เข้าสู่ระบบ
           </Button>
         </form>
         <p className="mt-6 text-center text-sm text-slate-400">
-          Don't have an account?{" "}
+          ยังไม่มีบัญชี?{" "}
           <Link to="/register" className="text-brand-400 hover:text-brand-300">
-            Register
+            สมัครสมาชิก
           </Link>
         </p>
       </Card>

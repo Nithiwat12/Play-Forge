@@ -4,7 +4,7 @@ import { ApiError } from "../utils/ApiError";
 import { env } from "../config/env";
 
 export function notFoundMiddleware(req: Request, res: Response) {
-  res.status(404).json({ error: { message: `Route not found: ${req.method} ${req.path}` } });
+  res.status(404).json({ error: { message: `ไม่พบเส้นทางนี้: ${req.method} ${req.path}` } });
 }
 
 // Centralized error handler. Normalizes ApiError, Zod validation errors,
@@ -20,7 +20,7 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
   if (err instanceof ZodError) {
     return res.status(400).json({
       error: {
-        message: "Validation failed",
+        message: "ข้อมูลไม่ถูกต้อง",
         details: err.flatten(),
       },
     });
@@ -29,7 +29,7 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
   console.error(err);
   return res.status(500).json({
     error: {
-      message: "Internal server error",
+      message: "เกิดข้อผิดพลาดของเซิร์ฟเวอร์",
       ...(env.isProduction ? {} : { debug: err instanceof Error ? err.message : String(err) }),
     },
   });

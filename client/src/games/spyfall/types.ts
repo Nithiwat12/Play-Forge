@@ -9,9 +9,9 @@ export interface SpyfallPublicPlayer {
 
 export interface SpyfallLogEntry {
   id: string;
-  type: "question" | "answer";
-  fromUserId: string;
-  fromUsername: string;
+  type: "question" | "answer" | "system";
+  fromUserId?: string;
+  fromUsername?: string;
   toUserId?: string;
   toUsername?: string;
   text: string;
@@ -39,7 +39,7 @@ export interface SpyfallResult {
   location: string;
   voteTally?: SpyfallVoteTally[];
   votes?: SpyfallRevealedVote[];
-  spyGuess?: string;
+  spyGuessCorrect?: boolean;
 }
 
 export interface SpyfallPublicState {
@@ -49,6 +49,8 @@ export interface SpyfallPublicState {
   players: SpyfallPublicPlayer[];
   log: SpyfallLogEntry[];
   result: SpyfallResult | null;
+  voteCallers: string[];
+  requiredVoteCallers: number;
 }
 
 // Only ever holds THIS browser's own player - never another player's role.
@@ -61,6 +63,7 @@ export interface SpyfallPrivateState {
 export const SPYFALL_ACTIONS = {
   QUESTION: "spyfall:question",
   ANSWER: "spyfall:answer",
+  CALL_VOTE: "spyfall:callVote",
   VOTE: "spyfall:vote",
   GUESS: "spyfall:guess",
 } as const;

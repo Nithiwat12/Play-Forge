@@ -30,6 +30,17 @@ export interface RoomPlayer {
   connected: boolean;
 }
 
+export interface RoomCustomLocation {
+  name: string;
+  roles: string[];
+}
+
+export interface RoomSettings {
+  discussionSeconds?: number;
+  customLocations?: RoomCustomLocation[];
+  onlyCustomLocations?: boolean;
+}
+
 export interface Room {
   id: string;
   roomCode: string;
@@ -40,6 +51,7 @@ export interface Room {
   game: Game;
   hostId: string;
   players: RoomPlayer[];
+  settings: RoomSettings | null;
   createdAt: string;
 }
 

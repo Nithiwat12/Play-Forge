@@ -66,6 +66,11 @@ model Room {
   passwordHash String?
   maxPlayers   Int
   status       RoomStatus @default(WAITING)
+  // Per-room, game-agnostic config set at creation time (e.g. Spyfall's
+  // discussion time and custom locations). Opaque JSON so future games
+  // don't require schema changes - each game's engine defines its own
+  // config shape and casts this itself.
+  settings     Json?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

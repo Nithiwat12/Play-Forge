@@ -20,11 +20,11 @@ export function PlayerList({ players, selfUserId, onAsk }: PlayerListProps) {
             />
             <span className="text-sm text-slate-100">
               {player.username}
-              {player.userId === selfUserId && <span className="text-slate-500"> (you)</span>}
+              {player.userId === selfUserId && <span className="text-slate-500"> (คุณ)</span>}
             </span>
             {player.hasVoted && (
               <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] uppercase text-slate-400">
-                Voted
+                โหวตแล้ว
               </span>
             )}
           </div>
@@ -33,7 +33,7 @@ export function PlayerList({ players, selfUserId, onAsk }: PlayerListProps) {
               onClick={() => onAsk(player.userId)}
               className="text-xs text-brand-400 hover:text-brand-300"
             >
-              Ask
+              ถาม
             </button>
           )}
         </li>

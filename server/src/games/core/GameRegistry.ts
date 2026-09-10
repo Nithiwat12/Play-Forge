@@ -1,6 +1,9 @@
 import type { BaseGame } from "./BaseGame";
 
-type GameFactory = (roomId: string) => BaseGame;
+// `config` is opaque here on purpose - the platform never interprets a
+// specific game's config shape, it just carries it from the room's
+// settings JSON to whichever factory the slug resolves to.
+type GameFactory = (roomId: string, config?: unknown) => BaseGame;
 
 /**
  * Maps a game's slug (matching the `games.slug` DB column) to a factory
@@ -26,12 +29,12 @@ class GameRegistryClass {
     return this.factories.has(slug);
   }
 
-  create(slug: string, roomId: string): BaseGame {
+  create(slug: string, roomId: string, config?: unknown): BaseGame {
     const factory = this.factories.get(slug);
     if (!factory) {
       throw new Error(`No game implementation registered for slug "${slug}"`);
     }
-    return factory(roomId);
+    return factory(roomId, config);
   }
 
   listRegisteredSlugs(): string[] {

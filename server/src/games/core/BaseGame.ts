@@ -34,7 +34,7 @@ export abstract class BaseGame<
 
   addPlayer(player: GamePlayer): void {
     if (this.started) {
-      throw new Error("Cannot add players after the game has started");
+      throw new Error("ไม่สามารถเพิ่มผู้เล่นได้หลังจากเกมเริ่มไปแล้ว");
     }
     this.players.set(player.userId, player);
   }

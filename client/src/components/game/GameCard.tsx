@@ -13,11 +13,11 @@ export function GameCard({ game }: { game: Game }) {
         <h3 className="text-lg font-semibold text-white">{game.name}</h3>
         <p className="mt-1 text-sm text-slate-400">{game.description}</p>
         <p className="mt-2 text-xs text-slate-500">
-          {game.minPlayers}-{game.maxPlayers} players
+          {game.minPlayers}-{game.maxPlayers} ผู้เล่น
         </p>
       </div>
       <Link to={`/games/${game.slug}`}>
-        <Button className="w-full">Play</Button>
+        <Button className="w-full">เล่น</Button>
       </Link>
     </Card>
   );

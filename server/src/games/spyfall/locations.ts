@@ -3,103 +3,103 @@ export interface SpyfallLocation {
   roles: string[];
 }
 
-// Classic Spyfall location deck. Each location lists the non-spy roles
-// that can be assigned there; roles are shuffled and dealt to players.
+// สำรับสถานที่มาตรฐานของ Spyfall (แปลเป็นภาษาไทยทั้งหมด) แต่ละสถานที่มีรายชื่อ
+// อาชีพ/บทบาท (ไม่ใช่สปาย) ที่จะถูกสุ่มแจกให้ผู้เล่น
 export const SPYFALL_LOCATIONS: SpyfallLocation[] = [
   {
-    name: "Airport",
-    roles: ["Pilot", "Flight Attendant", "Air Traffic Controller", "Security Officer", "Baggage Handler", "Customs Officer", "Tourist"],
+    name: "สนามบิน",
+    roles: ["นักบิน", "พนักงานต้อนรับบนเครื่องบิน", "เจ้าหน้าที่ควบคุมการจราจรทางอากาศ", "เจ้าหน้าที่รักษาความปลอดภัย", "พนักงานยกกระเป๋า", "เจ้าหน้าที่ศุลกากร", "นักท่องเที่ยว"],
   },
   {
-    name: "Bank",
-    roles: ["Teller", "Security Guard", "Manager", "Robber", "Customer", "Loan Officer", "Armored Car Driver"],
+    name: "ธนาคาร",
+    roles: ["พนักงานเทลเลอร์", "เจ้าหน้าที่รักษาความปลอดภัย", "ผู้จัดการ", "โจร", "ลูกค้า", "เจ้าหน้าที่สินเชื่อ", "คนขับรถขนเงิน"],
   },
   {
-    name: "Beach",
-    roles: ["Lifeguard", "Surfer", "Vendor", "Tourist", "Photographer", "Beach Volleyball Player"],
+    name: "ชายหาด",
+    roles: ["ไลฟ์การ์ด", "นักเล่นเซิร์ฟ", "พ่อค้าแม่ค้า", "นักท่องเที่ยว", "ช่างภาพ", "นักตบวอลเลย์บอลชายหาด"],
   },
   {
-    name: "Casino",
-    roles: ["Dealer", "Security Guard", "Bartender", "Gambler", "Manager", "Waitress"],
+    name: "คาสิโน",
+    roles: ["เจ้ามือ", "เจ้าหน้าที่รักษาความปลอดภัย", "บาร์เทนเดอร์", "นักพนัน", "ผู้จัดการ", "พนักงานเสิร์ฟ"],
   },
   {
-    name: "Cathedral",
-    roles: ["Priest", "Tourist", "Choir Singer", "Bell Ringer", "Bride", "Groom"],
+    name: "โบสถ์",
+    roles: ["บาทหลวง", "นักท่องเที่ยว", "นักร้องประสานเสียง", "คนตีระฆัง", "เจ้าสาว", "เจ้าบ่าว"],
   },
   {
-    name: "Circus Tent",
-    roles: ["Acrobat", "Clown", "Ringmaster", "Animal Trainer", "Magician", "Ticket Collector"],
+    name: "เต็นท์ละครสัตว์",
+    roles: ["นักกายกรรม", "ตัวตลก", "หัวหน้าคณะละครสัตว์", "ผู้ฝึกสัตว์", "นักมายากล", "คนเก็บตั๋ว"],
   },
   {
-    name: "Corporate Party",
-    roles: ["CEO", "Secretary", "Waiter", "Client", "Musician", "Employee of the Month"],
+    name: "งานเลี้ยงบริษัท",
+    roles: ["ซีอีโอ", "เลขานุการ", "พนักงานเสิร์ฟ", "ลูกค้า", "นักดนตรี", "พนักงานดีเด่นประจำเดือน"],
   },
   {
-    name: "Crusader Army",
-    roles: ["Knight", "Priest", "Servant", "Archer", "Squire", "Minstrel"],
+    name: "กองทัพครูเสด",
+    roles: ["อัศวิน", "บาทหลวง", "คนรับใช้", "นักธนู", "มหาดเล็ก", "นักร้องพเนจร"],
   },
   {
-    name: "Space Station",
-    roles: ["Astronaut", "Engineer", "Scientist", "Commander", "Alien", "Doctor"],
+    name: "สถานีอวกาศ",
+    roles: ["นักบินอวกาศ", "วิศวกร", "นักวิทยาศาสตร์", "ผู้บัญชาการ", "เอเลี่ยน", "แพทย์"],
   },
   {
-    name: "Hospital",
-    roles: ["Surgeon", "Nurse", "Patient", "Anesthesiologist", "Visitor", "Receptionist"],
+    name: "โรงพยาบาล",
+    roles: ["ศัลยแพทย์", "พยาบาล", "ผู้ป่วย", "วิสัญญีแพทย์", "ผู้มาเยี่ยม", "พนักงานต้อนรับ"],
   },
   {
-    name: "Hotel",
-    roles: ["Bellhop", "Manager", "Housekeeper", "Guest", "Concierge", "Doorman"],
+    name: "โรงแรม",
+    roles: ["พนักงานยกกระเป๋า", "ผู้จัดการ", "แม่บ้าน", "แขกที่พัก", "พนักงานต้อนรับส่วนหน้า", "พนักงานเปิดประตู"],
   },
   {
-    name: "Military Base",
-    roles: ["General", "Soldier", "Medic", "Sniper", "Tank Driver", "Officer"],
+    name: "ฐานทัพทหาร",
+    roles: ["นายพล", "ทหาร", "หน่วยแพทย์สนาม", "พลซุ่มยิง", "คนขับรถถัง", "นายทหาร"],
   },
   {
-    name: "Movie Studio",
-    roles: ["Director", "Actor", "Cameraman", "Stunt Double", "Producer", "Sound Engineer"],
+    name: "สตูดิโอถ่ายภาพยนตร์",
+    roles: ["ผู้กำกับ", "นักแสดง", "ตากล้อง", "สตันแมน", "ผู้อำนวยการสร้าง", "วิศวกรเสียง"],
   },
   {
-    name: "Ocean Liner",
-    roles: ["Captain", "Bartender", "Waiter", "Musician", "Mechanic", "Passenger"],
+    name: "เรือสำราญ",
+    roles: ["กัปตัน", "บาร์เทนเดอร์", "พนักงานเสิร์ฟ", "นักดนตรี", "ช่างเครื่อง", "ผู้โดยสาร"],
   },
   {
-    name: "Passenger Train",
-    roles: ["Conductor", "Passenger", "Engineer", "Waiter", "Stowaway"],
+    name: "รถไฟโดยสาร",
+    roles: ["พนักงานควบคุมรถไฟ", "ผู้โดยสาร", "วิศวกร", "พนักงานเสิร์ฟ", "ผู้แอบขึ้นรถ"],
   },
   {
-    name: "Pirate Ship",
-    roles: ["Captain", "First Mate", "Cook", "Cabin Boy", "Cannoneer", "Prisoner"],
+    name: "เรือโจรสลัด",
+    roles: ["กัปตัน", "ต้นหน", "พ่อครัว", "เด็กรับใช้ประจำเรือ", "พลปืนใหญ่", "นักโทษ"],
   },
   {
-    name: "Polar Station",
-    roles: ["Scientist", "Explorer", "Doctor", "Radio Operator", "Cook", "Mechanic"],
+    name: "สถานีขั้วโลก",
+    roles: ["นักวิทยาศาสตร์", "นักสำรวจ", "แพทย์", "เจ้าหน้าที่วิทยุ", "พ่อครัว", "ช่างเครื่อง"],
   },
   {
-    name: "Police Station",
-    roles: ["Detective", "Officer", "Criminal", "Lawyer", "Receptionist", "Forensic Analyst"],
+    name: "สถานีตำรวจ",
+    roles: ["นักสืบ", "เจ้าหน้าที่ตำรวจ", "อาชญากร", "ทนายความ", "พนักงานต้อนรับ", "นักนิติวิทยาศาสตร์"],
   },
   {
-    name: "Restaurant",
-    roles: ["Chef", "Waiter", "Customer", "Manager", "Dishwasher", "Food Critic"],
+    name: "ร้านอาหาร",
+    roles: ["เชฟ", "พนักงานเสิร์ฟ", "ลูกค้า", "ผู้จัดการ", "คนล้างจาน", "นักวิจารณ์อาหาร"],
   },
   {
-    name: "School",
-    roles: ["Teacher", "Student", "Principal", "Janitor", "Nurse", "Coach"],
+    name: "โรงเรียน",
+    roles: ["ครู", "นักเรียน", "ผู้อำนวยการ", "ภารโรง", "พยาบาลโรงเรียน", "โค้ช"],
   },
   {
-    name: "Supermarket",
-    roles: ["Cashier", "Manager", "Customer", "Stock Clerk", "Security Guard", "Butcher"],
+    name: "ซูเปอร์มาร์เก็ต",
+    roles: ["แคชเชียร์", "ผู้จัดการ", "ลูกค้า", "พนักงานจัดเรียงสินค้า", "เจ้าหน้าที่รักษาความปลอดภัย", "คนขายเนื้อ"],
   },
   {
-    name: "Theater",
-    roles: ["Actor", "Director", "Audience Member", "Usher", "Stagehand", "Critic"],
+    name: "โรงละคร",
+    roles: ["นักแสดง", "ผู้กำกับ", "ผู้ชม", "พนักงานพาที่นั่ง", "ช่างเวที", "นักวิจารณ์"],
   },
   {
-    name: "University",
-    roles: ["Professor", "Student", "Dean", "Janitor", "Librarian", "Research Assistant"],
+    name: "มหาวิทยาลัย",
+    roles: ["อาจารย์", "นักศึกษา", "คณบดี", "ภารโรง", "บรรณารักษ์", "ผู้ช่วยวิจัย"],
   },
   {
-    name: "Zoo",
-    roles: ["Zookeeper", "Veterinarian", "Visitor", "Tour Guide", "Vendor", "Photographer"],
+    name: "สวนสัตว์",
+    roles: ["ผู้ดูแลสวนสัตว์", "สัตวแพทย์", "ผู้มาเที่ยว", "ไกด์นำเที่ยว", "พ่อค้าแม่ค้า", "ช่างภาพ"],
   },
 ];

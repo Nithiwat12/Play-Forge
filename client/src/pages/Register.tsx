@@ -30,7 +30,7 @@ export function Register() {
       setAuth(data.user, data.token);
       navigate("/home");
     } catch (err) {
-      setError(extractErrorMessage(err, "Could not create account"));
+      setError(extractErrorMessage(err, "สมัครสมาชิกไม่สำเร็จ"));
     } finally {
       setIsLoading(false);
     }
@@ -39,12 +39,12 @@ export function Register() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
-        <h1 className="mb-1 text-2xl font-semibold text-white">Create an account</h1>
-        <p className="mb-6 text-sm text-slate-400">Join the platform to start playing.</p>
+        <h1 className="mb-1 text-2xl font-semibold text-white">สร้างบัญชีใหม่</h1>
+        <p className="mb-6 text-sm text-slate-400">สมัครสมาชิกเพื่อเริ่มเล่น</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input
             id="username"
-            label="Username"
+            label="ชื่อผู้ใช้"
             required
             minLength={3}
             maxLength={20}
@@ -55,7 +55,7 @@ export function Register() {
           <Input
             id="email"
             type="email"
-            label="Email"
+            label="อีเมล"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -64,7 +64,7 @@ export function Register() {
           <Input
             id="password"
             type="password"
-            label="Password"
+            label="รหัสผ่าน"
             required
             minLength={8}
             value={password}
@@ -73,13 +73,13 @@ export function Register() {
           />
           {error && <p className="text-sm text-red-400">{error}</p>}
           <Button type="submit" isLoading={isLoading} className="mt-2 w-full">
-            Create account
+            สร้างบัญชี
           </Button>
         </form>
         <p className="mt-6 text-center text-sm text-slate-400">
-          Already have an account?{" "}
+          มีบัญชีอยู่แล้ว?{" "}
           <Link to="/login" className="text-brand-400 hover:text-brand-300">
-            Log in
+            เข้าสู่ระบบ
           </Link>
         </p>
       </Card>

@@ -33,7 +33,7 @@ export const authController = {
 
   logout: asyncHandler(async (_req: Request, res: Response) => {
     res.clearCookie(env.cookieName);
-    res.status(200).json({ message: "Logged out" });
+    res.status(200).json({ message: "ออกจากระบบแล้ว" });
   }),
 
   me: asyncHandler(async (req: Request, res: Response) => {

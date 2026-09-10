@@ -9,9 +9,9 @@ export interface SpyfallPublicPlayer {
 
 export interface SpyfallLogEntry {
   id: string;
-  type: "question" | "answer";
-  fromUserId: string;
-  fromUsername: string;
+  type: "question" | "answer" | "system";
+  fromUserId?: string;
+  fromUsername?: string;
   toUserId?: string;
   toUsername?: string;
   text: string;
@@ -39,7 +39,10 @@ export interface SpyfallResult {
   location: string;
   voteTally?: SpyfallVoteTally[];
   votes?: SpyfallRevealedVote[];
-  spyGuess?: string;
+  // The Spy's own honest self-report of whether their spoken guess (made
+  // out loud to the other players, in person) was correct - the app never
+  // sees or validates the actual guessed location text.
+  spyGuessCorrect?: boolean;
 }
 
 export interface SpyfallPublicState {
@@ -49,11 +52,13 @@ export interface SpyfallPublicState {
   players: SpyfallPublicPlayer[];
   log: SpyfallLogEntry[];
   result: SpyfallResult | null;
+  // Call-to-vote progress: how many players have asked to open the voting
+  // screen, and how many are required (a simple majority) before it opens.
+  voteCallers: string[];
+  requiredVoteCallers: number;
 }
 
-// Never broadcast to anyone but the owning player - this is the whole
-// point of Spyfall. A normal player gets {isSpy:false, location, role};
-// the spy gets {isSpy:true, location:null, role:null}.
+// Only ever holds THIS browser's own player - never another player's role.
 export interface SpyfallPrivateState {
   isSpy: boolean;
   location: string | null;
@@ -68,6 +73,7 @@ export interface SpyfallPrivateState {
 export const SPYFALL_ACTIONS = {
   QUESTION: "spyfall:question",
   ANSWER: "spyfall:answer",
+  CALL_VOTE: "spyfall:callVote",
   VOTE: "spyfall:vote",
   GUESS: "spyfall:guess",
 } as const;
@@ -85,6 +91,8 @@ export interface SpyfallVotePayload {
   targetUserId: string;
 }
 
+// The Spy self-reports whether their spoken guess was correct - see
+// SpyfallResult.spyGuessCorrect above for why there's no location text here.
 export interface SpyfallGuessPayload {
-  location: string;
+  correct: boolean;
 }

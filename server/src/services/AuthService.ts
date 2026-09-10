@@ -33,9 +33,9 @@ export const AuthService = {
     });
     if (existing) {
       if (existing.email === input.email) {
-        throw ApiError.conflict("An account with this email already exists");
+        throw ApiError.conflict("มีบัญชีที่ใช้อีเมลนี้อยู่แล้ว");
       }
-      throw ApiError.conflict("This username is already taken");
+      throw ApiError.conflict("ชื่อผู้ใช้นี้ถูกใช้ไปแล้ว");
     }
 
     const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
@@ -54,12 +54,12 @@ export const AuthService = {
   async login(input: LoginInput): Promise<{ user: PublicUser; token: string }> {
     const user = await prisma.user.findUnique({ where: { email: input.email } });
     if (!user) {
-      throw ApiError.unauthorized("Invalid email or password");
+      throw ApiError.unauthorized("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
     }
 
     const valid = await bcrypt.compare(input.password, user.passwordHash);
     if (!valid) {
-      throw ApiError.unauthorized("Invalid email or password");
+      throw ApiError.unauthorized("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
     }
 
     const token = signToken({ sub: user.id, username: user.username, email: user.email });
@@ -68,7 +68,7 @@ export const AuthService = {
 
   async getById(userId: string): Promise<PublicUser> {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw ApiError.notFound("User not found");
+    if (!user) throw ApiError.notFound("ไม่พบผู้ใช้นี้");
     return toPublicUser(user);
   },
 
@@ -78,7 +78,7 @@ export const AuthService = {
     try {
       return jwt.verify(token, env.jwtSecret) as JwtPayload;
     } catch {
-      throw ApiError.unauthorized("Invalid or expired token");
+      throw ApiError.unauthorized("โทเคนไม่ถูกต้องหรือหมดอายุ");
     }
   },
 };

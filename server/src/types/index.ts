@@ -36,6 +36,21 @@ export interface PublicRoomPlayer {
   connected: boolean;
 }
 
+// Opaque, game-agnostic settings blob a host can set at room creation.
+// Shape-wise it's still Spyfall-only today (Spyfall is the only game
+// registered), but living on Room.settings as JSON means adding a second
+// game's own settings later needs no schema change here.
+export interface RoomCustomLocation {
+  name: string;
+  roles: string[];
+}
+
+export interface RoomSettings {
+  discussionSeconds?: number;
+  customLocations?: RoomCustomLocation[];
+  onlyCustomLocations?: boolean;
+}
+
 export interface PublicRoom {
   id: string;
   roomCode: string;
@@ -46,5 +61,6 @@ export interface PublicRoom {
   game: PublicGame;
   hostId: string;
   players: PublicRoomPlayer[];
+  settings: RoomSettings | null;
   createdAt: string;
 }

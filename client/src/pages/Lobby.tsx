@@ -37,7 +37,7 @@ export function Lobby() {
         }
         setRoom(response.room);
       } catch (err) {
-        if (!cancelled) setError(extractErrorMessage(err, "Could not join lobby"));
+        if (!cancelled) setError(extractErrorMessage(err, "เข้าล็อบบี้ไม่สำเร็จ"));
       } finally {
         if (!cancelled) setIsJoining(false);
       }
@@ -107,7 +107,7 @@ export function Lobby() {
           <Card>
             <p className="text-sm text-red-400">{error}</p>
             <Button className="mt-4 w-full" onClick={() => navigate("/home")}>
-              Back to library
+              กลับไปที่คลังเกม
             </Button>
           </Card>
         </main>
@@ -135,7 +135,7 @@ export function Lobby() {
           </div>
 
           <p className="mt-4 text-sm text-slate-400">
-            {room.players.length} / {room.maxPlayers} players
+            {room.players.length} / {room.maxPlayers} ผู้เล่น
           </p>
 
           <ul className="mt-4 flex flex-col gap-2">
@@ -152,7 +152,7 @@ export function Lobby() {
 
           <div className="mt-6 flex flex-wrap gap-3">
             <Button variant={self?.isReady ? "secondary" : "primary"} onClick={handleToggleReady}>
-              {self?.isReady ? "Not ready" : "Ready"}
+              {self?.isReady ? "ยังไม่พร้อม" : "พร้อมแล้ว"}
             </Button>
             {isHost && (
               <Button
@@ -160,19 +160,19 @@ export function Lobby() {
                 onClick={handleStart}
                 isLoading={isStarting}
                 disabled={!canStart}
-                title={!canStart ? `Needs at least ${room.game.minPlayers} players` : undefined}
+                title={!canStart ? `ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คน` : undefined}
               >
-                Start Game
+                เริ่มเกม
               </Button>
             )}
             <Button variant="ghost" onClick={handleLeave}>
-              Leave Room
+              ออกจากห้อง
             </Button>
           </div>
 
           {isHost && !canStart && (
             <p className="mt-3 text-xs text-slate-500">
-              Waiting for at least {room.game.minPlayers} players to join before you can start.
+              รอผู้เล่นเข้าร่วมอย่างน้อย {room.game.minPlayers} คนก่อนจึงจะเริ่มเกมได้
             </p>
           )}
         </Card>

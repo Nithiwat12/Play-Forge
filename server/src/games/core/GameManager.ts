@@ -16,12 +16,12 @@ import type { GamePlayer, GameResult } from "./types";
 class GameManagerClass {
   private activeGames = new Map<string, BaseGame>();
 
-  startGame(roomId: string, gameSlug: string, players: GamePlayer[]): BaseGame {
+  startGame(roomId: string, gameSlug: string, players: GamePlayer[], config?: unknown): BaseGame {
     if (this.activeGames.has(roomId)) {
-      throw new Error(`A game is already active for room ${roomId}`);
+      throw new Error(`มีเกมที่กำลังเล่นอยู่ในห้องนี้แล้ว`);
     }
 
-    const game = GameRegistry.create(gameSlug, roomId);
+    const game = GameRegistry.create(gameSlug, roomId, config);
     for (const player of players) {
       game.addPlayer(player);
     }
@@ -38,7 +38,7 @@ class GameManagerClass {
   handleAction(roomId: string, userId: string, actionType: string, payload: unknown): void {
     const game = this.activeGames.get(roomId);
     if (!game) {
-      throw new Error("No active game for this room");
+      throw new Error("ไม่มีเกมที่กำลังเล่นอยู่ในห้องนี้");
     }
     game.handleAction(userId, actionType, payload);
   }

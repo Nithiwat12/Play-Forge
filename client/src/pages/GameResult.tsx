@@ -25,20 +25,20 @@ export function GameResult() {
         {!entry ? (
           <Card>
             <p className="text-sm text-slate-400">
-              Open this result from your{" "}
+              เปิดผลลัพธ์นี้จาก{" "}
               <button onClick={() => navigate("/history")} className="text-brand-400 underline">
-                game history
+                ประวัติเกม
               </button>{" "}
-              to see the details.
+              เพื่อดูรายละเอียด
             </p>
-            <p className="mt-2 text-xs text-slate-600">Session: {gameSessionId}</p>
+            <p className="mt-2 text-xs text-slate-600">รหัสรอบเกม: {gameSessionId}</p>
           </Card>
         ) : (
           <Card>
             <p className="text-sm text-slate-400">{entry.gameName}</p>
             <h1 className="text-xl font-semibold text-white">{entry.roomName}</h1>
             <p className="mt-1 text-xs text-slate-500">
-              Room {entry.roomCode} - {new Date(entry.startedAt).toLocaleString()}
+              ห้อง {entry.roomCode} - {new Date(entry.startedAt).toLocaleString("th-TH")}
             </p>
 
             {result?.summary && (
@@ -61,7 +61,7 @@ export function GameResult() {
             )}
 
             <Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>
-              Back to history
+              กลับไปที่ประวัติเกม
             </Button>
           </Card>
         )}

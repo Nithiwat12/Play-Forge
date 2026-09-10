@@ -23,7 +23,7 @@ export function GamePage() {
         if (!cancelled) setGame(data.game);
       })
       .catch((err) => {
-        if (!cancelled) setError(extractErrorMessage(err, "Game not found"));
+        if (!cancelled) setError(extractErrorMessage(err, "ไม่พบเกมนี้"));
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -45,18 +45,18 @@ export function GamePage() {
             <h1 className="text-2xl font-semibold text-white">{game.name}</h1>
             <p className="mt-2 text-sm text-slate-400">{game.description}</p>
             <p className="mt-2 text-xs text-slate-500">
-              {game.minPlayers}-{game.maxPlayers} players
+              {game.minPlayers}-{game.maxPlayers} ผู้เล่น
             </p>
 
             <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Link to={`/games/${game.slug}/create`}>
                 <Button className="w-full" variant="primary">
-                  Create Room
+                  สร้างห้อง
                 </Button>
               </Link>
               <Link to={`/games/${game.slug}/join`}>
                 <Button className="w-full" variant="secondary">
-                  Join Room
+                  เข้าร่วมห้อง
                 </Button>
               </Link>
             </div>
