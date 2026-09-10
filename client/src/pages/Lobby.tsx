@@ -4,6 +4,7 @@ import { Navbar } from "../components/common/Navbar";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Spinner } from "../components/common/Spinner";
+import { ConfirmModal } from "../components/common/ConfirmModal";
 import { RoomCodeBadge } from "../components/room/RoomCodeBadge";
 import { PlayerListItem } from "../components/room/PlayerListItem";
 import { connectSocket, emitWithAck, getSocket } from "../services/socket";
@@ -21,6 +22,7 @@ export function Lobby() {
   const [isJoining, setIsJoining] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
 
   useEffect(() => {
     if (!roomCode) return;
@@ -52,14 +54,21 @@ export function Lobby() {
       navigate(`/play/${updatedRoom.roomCode}`);
     }
 
+    function handleDisbanded() {
+      clearRoom();
+      navigate("/home", { replace: true });
+    }
+
     socket.on("room:update", handleRoomUpdate);
     socket.on("game:start", handleGameStart);
+    socket.on("room:disbanded", handleDisbanded);
     joinRoom();
 
     return () => {
       cancelled = true;
       socket.off("room:update", handleRoomUpdate);
       socket.off("game:start", handleGameStart);
+      socket.off("room:disbanded", handleDisbanded);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
@@ -90,6 +99,14 @@ export function Lobby() {
     navigate("/home");
   }
 
+  function handleConfirmDisband() {
+    if (room) {
+      getSocket()?.emit("room:disband", { roomId: room.id });
+    }
+    clearRoom();
+    navigate("/home");
+  }
+
   if (isJoining) {
     return (
       <div className="min-h-screen">
@@ -103,7 +120,7 @@ export function Lobby() {
     return (
       <div className="min-h-screen">
         <Navbar />
-        <main className="mx-auto max-w-md px-6 py-10">
+        <main className="mx-auto max-w-md px-4 py-6 sm:px-6 sm:py-10">
           <Card>
             <p className="text-sm text-red-400">{error}</p>
             <Button className="mt-4 w-full" onClick={() => navigate("/home")}>
@@ -124,7 +141,7 @@ export function Lobby() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <main className="mx-auto max-w-2xl px-6 py-10">
+      <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -168,6 +185,11 @@ export function Lobby() {
             <Button variant="ghost" onClick={handleLeave}>
               ออกจากห้อง
             </Button>
+            {isHost && (
+              <Button variant="ghost" onClick={() => setShowDisbandConfirm(true)}>
+                ยุบห้อง
+              </Button>
+            )}
           </div>
 
           {isHost && !canStart && (
@@ -177,6 +199,16 @@ export function Lobby() {
           )}
         </Card>
       </main>
+      {showDisbandConfirm && (
+        <ConfirmModal
+          title="ยุบห้องนี้?"
+          message="ห้องนี้จะถูกปิดสำหรับทุกคนทันที ทุกคนจะถูกส่งกลับหน้าแรก"
+          confirmLabel="ยุบห้อง"
+          cancelLabel="ยกเลิก"
+          onConfirm={handleConfirmDisband}
+          onCancel={() => setShowDisbandConfirm(false)}
+        />
+      )}
     </div>
   );
 }

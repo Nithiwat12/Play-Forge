@@ -112,14 +112,8 @@ export const RoomService = {
 
     // Minutes are friendlier for a host to type; the engine works in
     // seconds, so the conversion happens once, right at creation time.
-    const settings: RoomSettings | undefined = input.settings
-      ? {
-          discussionSeconds: input.settings.discussionMinutes
-            ? input.settings.discussionMinutes * 60
-            : undefined,
-          customLocations: input.settings.customLocations,
-          onlyCustomLocations: input.settings.onlyCustomLocations,
-        }
+    const settings: RoomSettings | undefined = input.settings?.discussionMinutes
+      ? { discussionSeconds: input.settings.discussionMinutes * 60 }
       : undefined;
 
     const room = await prisma.room.create({
@@ -297,6 +291,23 @@ export const RoomService = {
       where: { roomId, leftAt: null },
       data: { isReady: false },
     });
+  },
+
+  // Host-only: dissolves the room entirely for every player at once (unlike
+  // leaveRoomById, which only removes the one leaving player and migrates
+  // host status). Marks every active seat as left and closes the room out,
+  // the same terminal state a room reaches when its last player leaves.
+  async disbandRoom(hostId: string, roomId: string): Promise<void> {
+    const room = await findById(roomId);
+    if (room.hostId !== hostId) {
+      throw ApiError.forbidden("เฉพาะโฮสต์เท่านั้นที่ยุบห้องได้");
+    }
+
+    await prisma.roomPlayer.updateMany({
+      where: { roomId, leftAt: null },
+      data: { leftAt: new Date() },
+    });
+    await prisma.room.update({ where: { id: roomId }, data: { status: "FINISHED" } });
   },
 
   toPublicRoom,

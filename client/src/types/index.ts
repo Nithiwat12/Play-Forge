@@ -30,15 +30,8 @@ export interface RoomPlayer {
   connected: boolean;
 }
 
-export interface RoomCustomLocation {
-  name: string;
-  roles: string[];
-}
-
 export interface RoomSettings {
   discussionSeconds?: number;
-  customLocations?: RoomCustomLocation[];
-  onlyCustomLocations?: boolean;
 }
 
 export interface Room {

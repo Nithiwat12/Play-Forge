@@ -40,4 +40,13 @@ export const GameSessionService = {
       data: { status: "ABORTED", finishedAt: new Date() },
     });
   },
+
+  // Used when a room is disbanded mid-game: there's no natural GameResult
+  // to persist, so the in-progress session (if any) is just closed out.
+  async abortActiveForRoom(roomId: string) {
+    await prisma.gameSession.updateMany({
+      where: { roomId, status: "IN_PROGRESS" },
+      data: { status: "ABORTED", finishedAt: new Date() },
+    });
+  },
 };

@@ -37,8 +37,6 @@ const MAX_DISCUSSION_SECONDS = 20 * 60;
 // gets the classic defaults.
 export interface SpyfallConfig {
   discussionSeconds?: number;
-  customLocations?: SpyfallLocation[];
-  onlyCustomLocations?: boolean;
 }
 
 /**
@@ -78,7 +76,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     }
 
     this.discussionSeconds = this.resolveDiscussionSeconds();
-    this.location = shuffle(this.buildLocationPool())[0];
+    this.location = shuffle(SPYFALL_LOCATIONS)[0];
 
     const playerIds = this.getPlayers().map((p) => p.userId);
     this.spyUserId = playerIds[Math.floor(Math.random() * playerIds.length)];
@@ -98,29 +96,6 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       return SPYFALL_TIMER_SECONDS;
     }
     return Math.min(MAX_DISCUSSION_SECONDS, Math.max(MIN_DISCUSSION_SECONDS, Math.round(configured)));
-  }
-
-  // Merges the host's custom locations (validated shape only - never
-  // trusted further than "looks like a location") into the default Thai
-  // deck, or replaces it entirely when the host opted into "only custom".
-  private buildLocationPool(): SpyfallLocation[] {
-    const custom = (this.config.customLocations ?? [])
-      .filter(
-        (loc): loc is SpyfallLocation =>
-          typeof loc?.name === "string" &&
-          loc.name.trim().length > 0 &&
-          Array.isArray(loc.roles) &&
-          loc.roles.filter((r) => typeof r === "string" && r.trim().length > 0).length >= 2
-      )
-      .map((loc) => ({
-        name: loc.name.trim(),
-        roles: loc.roles.filter((r) => typeof r === "string" && r.trim().length > 0).map((r) => r.trim()),
-      }));
-
-    if (this.config.onlyCustomLocations && custom.length > 0) {
-      return custom;
-    }
-    return custom.length > 0 ? [...SPYFALL_LOCATIONS, ...custom] : SPYFALL_LOCATIONS;
   }
 
   private beginTimer(seconds: number): void {

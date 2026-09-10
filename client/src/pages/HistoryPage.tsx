@@ -34,7 +34,7 @@ export function HistoryPage() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
         <h1 className="text-2xl font-semibold text-white">ประวัติเกม</h1>
         <p className="mt-1 text-sm text-slate-400">เกมทุกรอบที่คุณเคยเล่น</p>
 
@@ -51,7 +51,10 @@ export function HistoryPage() {
             </p>
             <div className="mt-3 flex flex-col gap-3">
               {activeRooms.map((room) => (
-                <Card key={room.id} className="flex items-center justify-between gap-4">
+                <Card
+                  key={room.id}
+                  className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div>
                     <p className="font-medium text-white">
                       {room.game.name} - {room.roomName}
@@ -86,7 +89,7 @@ export function HistoryPage() {
                   className="cursor-pointer transition hover:border-brand-600"
                   onClick={() => navigate(`/result/${entry.gameSessionId}`, { state: { entry } })}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="font-medium text-white">
                         {entry.gameName} - {entry.roomName}

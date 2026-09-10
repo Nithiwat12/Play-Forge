@@ -8,6 +8,9 @@ export interface GameComponentProps {
   privateState: unknown;
   selfUserId?: string;
   onAction: (actionType: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
+  // Host-only "play again" - re-runs game:start against the same room once
+  // a round has finished, without leaving PlayPage.
+  onReplay: () => Promise<{ ok: boolean; error?: string }>;
 }
 
 // Client-side mirror of the server's GameRegistry: maps a game's slug to

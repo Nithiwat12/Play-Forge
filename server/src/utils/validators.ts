@@ -19,23 +19,9 @@ export const loginSchema = z.object({
   password: z.string().min(1, "กรุณากรอกรหัสผ่าน"),
 });
 
-// A host-defined extra location for the room's Spyfall deck (or a future
-// game's own equivalent - the shape stays Spyfall-specific for now since
-// it's the only game on the platform, but lives in "settings" precisely
-// so it never needs a schema change to support another game later).
-export const customLocationSchema = z.object({
-  name: z.string().trim().min(1, "ต้องระบุชื่อสถานที่").max(40),
-  roles: z
-    .array(z.string().trim().min(1).max(30))
-    .min(2, "ต้องมีอย่างน้อย 2 อาชีพต่อสถานที่")
-    .max(12, "ใส่ได้ไม่เกิน 12 อาชีพต่อสถานที่"),
-});
-
 export const roomSettingsSchema = z.object({
   // Minutes, converted to seconds before being stored/used by the engine.
   discussionMinutes: z.coerce.number().int().min(3).max(20).optional(),
-  customLocations: z.array(customLocationSchema).max(20).optional(),
-  onlyCustomLocations: z.boolean().optional(),
 });
 
 export const createRoomSchema = z.object({

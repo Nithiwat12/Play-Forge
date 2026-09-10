@@ -31,7 +31,7 @@ export function Home() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <main className="mx-auto max-w-6xl px-6 py-10">
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         <h1 className="text-2xl font-semibold text-white">คลังเกม</h1>
         <p className="mt-1 text-sm text-slate-400">
           เลือกเกมเพื่อสร้างหรือเข้าร่วมห้อง เกมใหม่จะแสดงที่นี่โดยอัตโนมัติ

@@ -23,6 +23,7 @@ export function PlayPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
 
   useEffect(() => {
     if (!roomCode) return;
@@ -57,14 +58,22 @@ export function PlayPage() {
       setRoom(updatedRoom);
     }
 
+    function handleDisbanded() {
+      clearRoom();
+      clear();
+      navigate("/home", { replace: true });
+    }
+
     socket.on("game:state", handleGameState);
     socket.on("room:update", handleRoomUpdate);
+    socket.on("room:disbanded", handleDisbanded);
     ensureJoined();
 
     return () => {
       cancelled = true;
       socket.off("game:state", handleGameState);
       socket.off("room:update", handleRoomUpdate);
+      socket.off("room:disbanded", handleDisbanded);
       clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,9 +84,23 @@ export function PlayPage() {
     return response.ok ? { ok: true } : { ok: false, error: response.error };
   }
 
+  async function handleReplay() {
+    const response = await emitWithAck("game:start", { roomId: room?.id });
+    return response.ok ? { ok: true } : { ok: false, error: response.error };
+  }
+
   function handleConfirmLeave() {
     if (room) {
       getSocket()?.emit("room:leave", { roomId: room.id });
+    }
+    clearRoom();
+    clear();
+    navigate("/home");
+  }
+
+  function handleConfirmDisband() {
+    if (room) {
+      getSocket()?.emit("room:disband", { roomId: room.id });
     }
     clearRoom();
     clear();
@@ -97,7 +120,7 @@ export function PlayPage() {
     return (
       <div className="min-h-screen">
         <Navbar />
-        <main className="mx-auto max-w-md px-6 py-10">
+        <main className="mx-auto max-w-md px-4 py-6 sm:px-6 sm:py-10">
           <Card>
             <p className="text-sm text-red-400">{error ?? "ไม่พบห้องนี้"}</p>
           </Card>
@@ -117,10 +140,17 @@ export function PlayPage() {
     );
   }
 
+  const isHost = room.hostId === currentUser?.id;
+
   return (
     <div className="min-h-screen">
       <Navbar />
-      <div className="mx-auto flex max-w-4xl items-center justify-end px-6 pt-6 lg:max-w-none lg:px-6">
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-end gap-2 px-4 pt-4 sm:px-6 sm:pt-6 lg:max-w-none lg:px-6">
+        {isHost && (
+          <Button variant="ghost" onClick={() => setShowDisbandConfirm(true)}>
+            ยุบห้อง
+          </Button>
+        )}
         <Button variant="ghost" onClick={() => setShowLeaveConfirm(true)}>
           ออกจากเกม
         </Button>
@@ -131,6 +161,7 @@ export function PlayPage() {
         privateState={privateState}
         selfUserId={currentUser?.id}
         onAction={handleAction}
+        onReplay={handleReplay}
       />
       {showLeaveConfirm && (
         <ConfirmModal
@@ -140,6 +171,16 @@ export function PlayPage() {
           cancelLabel="เล่นต่อ"
           onConfirm={handleConfirmLeave}
           onCancel={() => setShowLeaveConfirm(false)}
+        />
+      )}
+      {showDisbandConfirm && (
+        <ConfirmModal
+          title="ยุบห้องนี้?"
+          message="ห้องนี้จะถูกปิดสำหรับทุกคนทันที และเกมที่กำลังเล่นอยู่จะจบลงโดยไม่มีผลแพ้ชนะ ทุกคนจะถูกส่งกลับหน้าแรก"
+          confirmLabel="ยุบห้อง"
+          cancelLabel="ยกเลิก"
+          onConfirm={handleConfirmDisband}
+          onCancel={() => setShowDisbandConfirm(false)}
         />
       )}
     </div>

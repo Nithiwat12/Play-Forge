@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../components/common/Navbar";
 import { Card } from "../components/common/Card";
 import { Input } from "../components/common/Input";
@@ -10,6 +10,7 @@ import { useRoomStore } from "../stores/roomStore";
 import type { Room } from "../types";
 
 export function JoinRoom() {
+  const { gameSlug } = useParams<{ gameSlug: string }>();
   const navigate = useNavigate();
   const setRoom = useRoomStore((s) => s.setRoom);
 
@@ -44,7 +45,13 @@ export function JoinRoom() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <main className="mx-auto max-w-md px-6 py-10">
+      <main className="mx-auto max-w-md px-4 py-6 sm:px-6 sm:py-10">
+        <button
+          onClick={() => navigate(gameSlug ? `/games/${gameSlug}` : "/home")}
+          className="mb-4 text-sm text-slate-400 hover:text-white"
+        >
+          ← ย้อนกลับ
+        </button>
         <Card>
           <h1 className="text-xl font-semibold text-white">เข้าร่วมห้อง</h1>
           <p className="mt-1 text-sm text-slate-400">กรอกรหัสห้องที่โฮสต์ส่งให้คุณ</p>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../components/common/Navbar";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
@@ -9,6 +9,7 @@ import type { Game } from "../types";
 
 export function GamePage() {
   const { gameSlug } = useParams<{ gameSlug: string }>();
+  const navigate = useNavigate();
   const [game, setGame] = useState<Game | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -36,7 +37,13 @@ export function GamePage() {
   return (
     <div className="min-h-screen">
       <Navbar />
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
+        <button
+          onClick={() => navigate("/home")}
+          className="mb-4 text-sm text-slate-400 hover:text-white"
+        >
+          ← ย้อนกลับ
+        </button>
         {isLoading && <Spinner className="mt-16" />}
         {error && <p className="text-sm text-red-400">{error}</p>}
 

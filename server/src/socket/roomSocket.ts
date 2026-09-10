@@ -1,5 +1,6 @@
 import { RoomService } from "../services/RoomService";
 import { GameManager } from "../games/core/GameManager";
+import { GameSessionService } from "../services/GameSessionService";
 import { RoomPresence } from "./roomPresence";
 import { withPresence } from "./socketUtils";
 import { joinRoomSchema } from "../utils/validators";
@@ -77,6 +78,32 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
       }
     }
   );
+
+  // Host-only: dissolves the room for everyone at once (leaving isn't
+  // enough when the host wants to shut the whole thing down rather than
+  // just hand off hosting). Ends any active game in memory, closes out its
+  // DB session if one was running, then kicks every connected member back
+  // to their home screen with one broadcast.
+  socket.on("room:disband", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
+    try {
+      await RoomService.disbandRoom(userId, roomId);
+      await GameSessionService.abortActiveForRoom(roomId);
+      GameManager.endGame(roomId);
+
+      io.to(roomId).emit("room:disbanded", { message: "โฮสต์ได้ยุบห้องนี้แล้ว" });
+
+      const socketsInRoom = await io.in(roomId).fetchSockets();
+      for (const memberSocket of socketsInRoom) {
+        memberSocket.leave(roomId);
+        delete memberSocket.data.currentRoomId;
+      }
+      RoomPresence.clearRoom(roomId);
+
+      ack({ ok: true });
+    } catch (err) {
+      ack({ ok: false, error: err instanceof Error ? err.message : "ยุบห้องไม่สำเร็จ" });
+    }
+  });
 
   socket.on("disconnect", () => {
     const roomId: string | undefined = socket.data.currentRoomId;

@@ -17,19 +17,29 @@ interface SpyfallGameProps {
   privateState: SpyfallPrivateState;
   selfUserId?: string;
   onAction: (actionType: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
+  onReplay: () => Promise<{ ok: boolean; error?: string }>;
 }
 
-export function SpyfallGame({ room, publicState, privateState, selfUserId, onAction }: SpyfallGameProps) {
+export function SpyfallGame({
+  room,
+  publicState,
+  privateState,
+  selfUserId,
+  onAction,
+  onReplay,
+}: SpyfallGameProps) {
   const navigate = useNavigate();
   const [targetUserId, setTargetUserId] = useState<string>("");
   const [questionText, setQuestionText] = useState("");
   const [answerText, setAnswerText] = useState("");
   const [myVoteTargetId, setMyVoteTargetId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isReplaying, setIsReplaying] = useState(false);
 
   const isFinished = publicState.phase === "FINISHED";
   const isVoting = publicState.phase === "VOTING";
   const hasCalledVote = Boolean(selfUserId && publicState.voteCallers.includes(selfUserId));
+  const isHost = room.hostId === selfUserId;
 
   const otherPlayers = useMemo(
     () => publicState.players.filter((p) => p.userId !== selfUserId),
@@ -72,10 +82,23 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
     await runAction(SPYFALL_ACTIONS.GUESS, { correct });
   }
 
+  async function handleReplay() {
+    setActionError(null);
+    setIsReplaying(true);
+    try {
+      const result = await onReplay();
+      if (!result.ok) {
+        setActionError(result.error ?? "เริ่มเกมใหม่ไม่สำเร็จ");
+      }
+    } finally {
+      setIsReplaying(false);
+    }
+  }
+
   return (
-    <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 px-6 py-10 lg:grid-cols-[2fr_1fr]">
-      <div className="flex flex-col gap-6">
-        <Card className="flex items-center justify-between">
+    <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 px-4 py-6 sm:gap-6 sm:px-6 sm:py-10 lg:grid-cols-[2fr_1fr]">
+      <div className="flex flex-col gap-4 sm:gap-6">
+        <Card className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm text-slate-400">{room.roomName}</p>
             <h1 className="text-xl font-semibold text-white">Spyfall</h1>
@@ -98,9 +121,19 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
               สปายคือ <span className="text-white">{publicState.result.spyUsername}</span> -
               สถานที่คือ <span className="text-white">{publicState.result.location}</span>
             </p>
-            <Button className="mt-4" onClick={() => navigate(`/lobby/${room.roomCode}`)}>
-              กลับไปที่ล็อบบี้
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {isHost ? (
+                <Button onClick={handleReplay} isLoading={isReplaying}>
+                  เล่นอีกครั้ง
+                </Button>
+              ) : (
+                <p className="flex items-center text-xs text-slate-500">รอโฮสต์กดเล่นอีกครั้ง...</p>
+              )}
+              <Button variant="secondary" onClick={() => navigate(`/lobby/${room.roomCode}`)}>
+                กลับไปที่ล็อบบี้
+              </Button>
+            </div>
+            {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
           </Card>
         )}
 
@@ -152,7 +185,7 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
                 ? "ถ้าคิดว่าทายสถานที่ได้แล้ว กดปุ่มนี้เพื่อหยุดการพูดคุยและเข้าสู่โหมดโหวต แล้วบอกคำทายของคุณออกมาดัง ๆ ให้เพื่อนฟัง"
                 : "ถ้าคิดว่ารู้แล้วว่าใครคือสปาย กดปุ่มนี้เพื่อขอเปิดโหวต ต้องได้เสียงข้างมากก่อนถึงจะเข้าสู่โหมดโหวตได้"}
             </p>
-            <div className="mt-3 flex items-center gap-3">
+            <div className="mt-3 flex flex-wrap items-center gap-3">
               <Button
                 variant={privateState.isSpy ? "danger" : "secondary"}
                 onClick={handleCallVote}
@@ -185,7 +218,7 @@ export function SpyfallGame({ room, publicState, privateState, selfUserId, onAct
                 <p className="text-sm text-red-200">
                   บอกคำทายสถานที่ของคุณออกมาดัง ๆ ให้เพื่อนฟัง แล้วกดปุ่มด้านล่างตามจริงว่าทายถูกหรือผิด
                 </p>
-                <div className="mt-3 flex gap-3">
+                <div className="mt-3 flex flex-wrap gap-3">
                   <Button variant="primary" onClick={() => handleGuess(true)}>
                     ทายถูก
                   </Button>
