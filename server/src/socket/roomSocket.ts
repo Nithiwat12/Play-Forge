@@ -1,9 +1,9 @@
-import type { Server, Socket } from "socket.io";
 import { RoomService } from "../services/RoomService";
 import { GameManager } from "../games/core/GameManager";
 import { RoomPresence } from "./roomPresence";
 import { withPresence } from "./socketUtils";
 import { joinRoomSchema } from "../utils/validators";
+import type { AppServer, AppSocket } from "./socketAuth";
 
 type Ack = (response: { ok: true; room?: unknown } | { ok: false; error: string }) => void;
 const noopAck: Ack = () => {};
@@ -16,7 +16,7 @@ const noopAck: Ack = () => {};
  * is used as the Socket.IO room name and as the identifier in every
  * subsequent room:* / game:* event.
  */
-export function registerRoomSocket(io: Server, socket: Socket) {
+export function registerRoomSocket(io: AppServer, socket: AppSocket) {
   const userId = socket.data.user.id;
 
   socket.on(

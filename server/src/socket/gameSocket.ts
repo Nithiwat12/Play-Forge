@@ -1,10 +1,10 @@
-import type { Server, Socket } from "socket.io";
 import { GameManager } from "../games/core/GameManager";
 import { GAME_ENGINE_EVENTS } from "../games/core/types";
 import type { BaseGame } from "../games/core/BaseGame";
 import { RoomService } from "../services/RoomService";
 import { GameSessionService } from "../services/GameSessionService";
 import { withPresence } from "./socketUtils";
+import type { AppServer, AppSocket } from "./socketAuth";
 
 type Ack = (response: { ok: true } | { ok: false; error: string }) => void;
 const noopAck: Ack = () => {};
@@ -24,7 +24,7 @@ const activeSessions = new Map<string, ActiveSessionInfo>();
  * role to every client" is enforced: getPrivateState(userId) is computed
  * per-socket and sent only to that socket.
  */
-function broadcastGameState(io: Server, roomId: string, game: BaseGame) {
+function broadcastGameState(io: AppServer, roomId: string, game: BaseGame) {
   const socketIds = io.sockets.adapter.rooms.get(roomId);
   if (!socketIds) return;
 
@@ -37,7 +37,7 @@ function broadcastGameState(io: Server, roomId: string, game: BaseGame) {
   }
 }
 
-async function finalizeGame(io: Server, roomId: string) {
+async function finalizeGame(io: AppServer, roomId: string) {
   // Guards against running twice for the same game. A host-forced end
   // calls this directly, which calls GameManager.endGame -> game.end(),
   // and if the engine hadn't concluded naturally yet that call itself
@@ -65,7 +65,7 @@ async function finalizeGame(io: Server, roomId: string) {
   }
 }
 
-export function registerGameSocket(io: Server, socket: Socket) {
+export function registerGameSocket(io: AppServer, socket: AppSocket) {
   const userId = socket.data.user.id;
 
   socket.on("game:start", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
