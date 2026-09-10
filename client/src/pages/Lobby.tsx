@@ -10,8 +10,8 @@ import { PlayerListItem } from "../components/room/PlayerListItem";
 import { connectSocket, emitWithAck, getSocket } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
 import { useAuthStore } from "../stores/authStore";
-import { extractErrorMessage } from "../services/api";
-import type { Room } from "../types";
+import { api, extractErrorMessage } from "../services/api";
+import type { Room, Scoreboard } from "../types";
 
 export function Lobby() {
   const { roomCode } = useParams<{ roomCode: string }>();
@@ -23,11 +23,23 @@ export function Lobby() {
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
+  const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
 
   useEffect(() => {
     if (!roomCode) return;
     const socket = connectSocket();
     let cancelled = false;
+
+    function refreshScoreboard() {
+      api
+        .get<{ scoreboard: Scoreboard }>(`/rooms/${roomCode}/scoreboard`)
+        .then((res) => {
+          if (!cancelled) setScoreboard(res.data.scoreboard);
+        })
+        .catch(() => {
+          // Non-critical - just means the match-complete banner won't show.
+        });
+    }
 
     async function joinRoom() {
       try {
@@ -39,6 +51,7 @@ export function Lobby() {
         }
         setError(null);
         setRoom(response.room);
+        refreshScoreboard();
         if (response.room.status !== "WAITING") {
           // The game is already running (or a network blip just reconnected
           // us mid-round) - the lobby screen is stale, so follow straight
@@ -150,12 +163,15 @@ export function Lobby() {
   const isHost = self?.isHost ?? false;
   const hasEnoughPlayers = room.players.length >= room.game.minPlayers;
   const allReady = room.players.every((p) => p.isReady);
-  const canStart = hasEnoughPlayers && allReady;
-  const startBlockedReason = !hasEnoughPlayers
-    ? `ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คน`
-    : !allReady
-      ? "ผู้เล่นยังไม่พร้อมครบทุกคน"
-      : undefined;
+  const matchComplete = scoreboard?.matchComplete ?? false;
+  const canStart = hasEnoughPlayers && allReady && !matchComplete;
+  const startBlockedReason = matchComplete
+    ? "เล่นครบจำนวนรอบที่กำหนดไว้แล้ว"
+    : !hasEnoughPlayers
+      ? `ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คน`
+      : !allReady
+        ? "ผู้เล่นยังไม่พร้อมครบทุกคน"
+        : undefined;
 
   return (
     <div className="min-h-screen">
@@ -211,7 +227,13 @@ export function Lobby() {
             )}
           </div>
 
-          {isHost && !canStart && (
+          {matchComplete && (
+            <p className="mt-3 text-sm font-medium text-amber-400">
+              🏆 แมตช์นี้เล่นครบ {scoreboard?.numberOfRounds} รอบแล้ว ดูผลคะแนนได้จากรอบล่าสุด หรือสร้างห้องใหม่เพื่อเล่นแมตช์ต่อไป
+            </p>
+          )}
+
+          {isHost && !canStart && !matchComplete && (
             <p className="mt-3 text-xs text-slate-500">
               {!hasEnoughPlayers
                 ? `รอผู้เล่นเข้าร่วมอย่างน้อย ${room.game.minPlayers} คนก่อนจึงจะเริ่มเกมได้`
