@@ -2,7 +2,7 @@
   "name": "board-game-platform",
   "private": true,
   "version": "1.0.0",
-  "description": "Scalable multiplayer board game platform (Spyfall is the first game)",
+  "description": "Scalable multiplayer board game platform (Spy Hunt is the first game)",
   "scripts": {
     "install:all": "npm install --prefix server && npm install --prefix client",
     "dev:server": "npm run dev --prefix server",

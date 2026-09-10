@@ -2,7 +2,8 @@
 
 A scalable, modular multiplayer board game platform. The core (auth, users,
 rooms, lobbies, sockets, game sessions, history) is completely game-agnostic;
-**Spyfall** is the first game built on top of it, and future games plug in
+**Spy Hunt** (a Spyfall-style social deduction game, internal code name
+`spyfall`) is the first game built on top of it, and future games plug in
 without touching the platform code.
 
 ```
@@ -33,7 +34,7 @@ Game Platform
 ```
 server/
   prisma/schema.prisma      Prisma models (User, Game, Room, RoomPlayer, GameSession, GameHistory)
-  prisma/seed.ts            Seeds the Spyfall game into the Game Library
+  prisma/seed.ts            Seeds the Spy Hunt game into the Game Library
   src/
     config/                 env, prisma client
     middleware/              authMiddleware, errorMiddleware
@@ -98,7 +99,7 @@ Make sure Postgres is running, then from `server/`:
 ```bash
 cd server
 npx prisma migrate dev --name init
-npm run seed        # inserts the Spyfall row into the Game Library
+npm run seed        # inserts the Spy Hunt row into the Game Library
 ```
 
 ### 4. Run the app (two terminals)
@@ -114,8 +115,8 @@ npm run dev           # http://localhost:5173
 ```
 
 Open `http://localhost:5173`, register an account, and you'll land on the
-Game Library with Spyfall ready to play. Open a second browser (or a private
-window) and register a second account to test real multiplayer - Spyfall
+Game Library with Spy Hunt ready to play. Open a second browser (or a private
+window) and register a second account to test real multiplayer - Spy Hunt
 needs at least 3 players to start.
 
 ### Useful Prisma commands
@@ -126,7 +127,7 @@ npx prisma migrate dev     # create/apply a new migration in development
 npx prisma migrate deploy  # apply migrations in production
 ```
 
-## How Spyfall works here
+## How Spy Hunt works here
 
 - The host creates a room (name, max players, optional password) and shares
   the generated room code.
