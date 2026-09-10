@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { SpyfallGame } from "./spyfall/SpyfallGame";
-import type { Room } from "../types";
+import type { Room, Scoreboard } from "../types";
 
 export interface GameComponentProps {
   room: Room;
@@ -11,6 +11,8 @@ export interface GameComponentProps {
   // Host-only "play again" - re-runs game:start against the same room once
   // a round has finished, without leaving PlayPage.
   onReplay: () => Promise<{ ok: boolean; error?: string }>;
+  // Match-wide score table (null until at least one round has finished).
+  scoreboard: Scoreboard | null;
 }
 
 // Client-side mirror of the server's GameRegistry: maps a game's slug to

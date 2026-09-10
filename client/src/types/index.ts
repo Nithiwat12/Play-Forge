@@ -32,6 +32,31 @@ export interface RoomPlayer {
 
 export interface RoomSettings {
   discussionSeconds?: number;
+  numberOfRounds?: number;
+}
+
+export interface ScoreboardTotal {
+  userId: string;
+  username: string;
+  total: number;
+}
+
+export interface RoundScoreEntry {
+  round: number;
+  winner: string;
+  reason: string;
+  spyUserId: string;
+  spyUsername: string;
+  scores: Record<string, number>;
+}
+
+export interface Scoreboard {
+  numberOfRounds: number | null;
+  roundsPlayed: number;
+  matchComplete: boolean;
+  rounds: RoundScoreEntry[];
+  totals: ScoreboardTotal[];
+  players: { userId: string; username: string }[];
 }
 
 export interface Room {

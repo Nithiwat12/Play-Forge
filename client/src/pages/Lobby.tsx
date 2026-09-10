@@ -37,7 +37,14 @@ export function Lobby() {
           setError(response.error);
           return;
         }
+        setError(null);
         setRoom(response.room);
+        if (response.room.status !== "WAITING") {
+          // The game is already running (or a network blip just reconnected
+          // us mid-round) - the lobby screen is stale, so follow straight
+          // into the game instead of stranding the player here.
+          navigate(`/play/${response.room.roomCode}`, { replace: true });
+        }
       } catch (err) {
         if (!cancelled) setError(extractErrorMessage(err, "เข้าล็อบบี้ไม่สำเร็จ"));
       } finally {
@@ -62,13 +69,18 @@ export function Lobby() {
     socket.on("room:update", handleRoomUpdate);
     socket.on("game:start", handleGameStart);
     socket.on("room:disbanded", handleDisbanded);
-    joinRoom();
+    // Re-run the join on every (re)connect, not just the first one, so a
+    // brief network drop doesn't silently leave this socket out of the
+    // room - see the identical comment in PlayPage.tsx.
+    socket.on("connect", joinRoom);
+    if (socket.connected) joinRoom();
 
     return () => {
       cancelled = true;
       socket.off("room:update", handleRoomUpdate);
       socket.off("game:start", handleGameStart);
       socket.off("room:disbanded", handleDisbanded);
+      socket.off("connect", joinRoom);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
@@ -136,7 +148,14 @@ export function Lobby() {
 
   const self = room.players.find((p) => p.userId === currentUser?.id);
   const isHost = self?.isHost ?? false;
-  const canStart = room.players.length >= room.game.minPlayers;
+  const hasEnoughPlayers = room.players.length >= room.game.minPlayers;
+  const allReady = room.players.every((p) => p.isReady);
+  const canStart = hasEnoughPlayers && allReady;
+  const startBlockedReason = !hasEnoughPlayers
+    ? `ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คน`
+    : !allReady
+      ? "ผู้เล่นยังไม่พร้อมครบทุกคน"
+      : undefined;
 
   return (
     <div className="min-h-screen">
@@ -177,7 +196,7 @@ export function Lobby() {
                 onClick={handleStart}
                 isLoading={isStarting}
                 disabled={!canStart}
-                title={!canStart ? `ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คน` : undefined}
+                title={startBlockedReason}
               >
                 เริ่มเกม
               </Button>
@@ -194,7 +213,9 @@ export function Lobby() {
 
           {isHost && !canStart && (
             <p className="mt-3 text-xs text-slate-500">
-              รอผู้เล่นเข้าร่วมอย่างน้อย {room.game.minPlayers} คนก่อนจึงจะเริ่มเกมได้
+              {!hasEnoughPlayers
+                ? `รอผู้เล่นเข้าร่วมอย่างน้อย ${room.game.minPlayers} คนก่อนจึงจะเริ่มเกมได้`
+                : "รอผู้เล่นกดพร้อมให้ครบทุกคนก่อนจึงจะเริ่มเกมได้"}
             </p>
           )}
         </Card>

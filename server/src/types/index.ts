@@ -42,6 +42,9 @@ export interface PublicRoomPlayer {
 // game's own settings later needs no schema change here.
 export interface RoomSettings {
   discussionSeconds?: number;
+  // How many rounds this room's match runs for. Unset = unlimited (the
+  // host can keep hitting "replay" indefinitely).
+  numberOfRounds?: number;
 }
 
 export interface PublicRoom {

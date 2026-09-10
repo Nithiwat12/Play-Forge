@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { Scoreboard } from "../types";
 
 interface GameResultEnvelope {
   summary: string;
@@ -15,8 +16,13 @@ interface GameState {
   publicState: unknown;
   privateState: unknown;
   lastResult: GameResultEnvelope | null;
+  // Match-wide score table (game-agnostic - see ScoreboardService), kept
+  // separate from publicState/privateState since it spans every round
+  // played in the room, not just the current one.
+  scoreboard: Scoreboard | null;
   setState: (publicState: unknown, privateState: unknown) => void;
   setResult: (result: GameResultEnvelope) => void;
+  setScoreboard: (scoreboard: Scoreboard | null) => void;
   clear: () => void;
 }
 
@@ -24,7 +30,9 @@ export const useGameStore = create<GameState>((set) => ({
   publicState: null,
   privateState: null,
   lastResult: null,
+  scoreboard: null,
   setState: (publicState, privateState) => set({ publicState, privateState }),
   setResult: (lastResult) => set({ lastResult }),
-  clear: () => set({ publicState: null, privateState: null, lastResult: null }),
+  setScoreboard: (scoreboard) => set({ scoreboard }),
+  clear: () => set({ publicState: null, privateState: null, lastResult: null, scoreboard: null }),
 }));

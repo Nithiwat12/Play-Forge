@@ -40,6 +40,7 @@ export interface SpyfallResult {
   voteTally?: SpyfallVoteTally[];
   votes?: SpyfallRevealedVote[];
   spyGuessCorrect?: boolean;
+  scores: Record<string, number>;
 }
 
 export interface SpyfallPublicState {

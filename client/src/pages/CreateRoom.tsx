@@ -19,6 +19,8 @@ export function CreateRoom() {
   const [usePassword, setUsePassword] = useState(false);
   const [password, setPassword] = useState("");
   const [discussionMinutes, setDiscussionMinutes] = useState(8);
+  const [limitRounds, setLimitRounds] = useState(false);
+  const [numberOfRounds, setNumberOfRounds] = useState(3);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -33,7 +35,10 @@ export function CreateRoom() {
         maxPlayers,
         usePassword,
         password: usePassword ? password : undefined,
-        settings: discussionMinutes ? { discussionMinutes } : undefined,
+        settings: {
+          ...(discussionMinutes ? { discussionMinutes } : {}),
+          ...(limitRounds ? { numberOfRounds } : {}),
+        },
       });
       setRoom(data.room);
       navigate(`/lobby/${data.room.roomCode}`);
@@ -89,6 +94,29 @@ export function CreateRoom() {
               value={discussionMinutes}
               onChange={(e) => setDiscussionMinutes(Number(e.target.value))}
             />
+
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={limitRounds}
+                onChange={(e) => setLimitRounds(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-brand-600"
+              />
+              กำหนดจำนวนรอบ (ไม่ติ๊ก = เล่นได้ไม่จำกัดรอบ)
+            </label>
+
+            {limitRounds && (
+              <Input
+                id="numberOfRounds"
+                type="number"
+                label="จำนวนรอบที่จะเล่น"
+                required={limitRounds}
+                min={1}
+                max={20}
+                value={numberOfRounds}
+                onChange={(e) => setNumberOfRounds(Number(e.target.value))}
+              />
+            )}
 
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input

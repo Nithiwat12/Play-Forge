@@ -43,6 +43,11 @@ export interface SpyfallResult {
   // out loud to the other players, in person) was correct - the app never
   // sees or validates the actual guessed location text.
   spyGuessCorrect?: boolean;
+  // Points earned this round, userId -> points. Spy escaping (not guessing)
+  // = 1pt, Spy guessing the location correctly = 3pt, each non-Spy player
+  // whose own vote correctly named the Spy = 1pt. Rolled up across rounds
+  // by ScoreboardService for the match-wide score table.
+  scores: Record<string, number>;
 }
 
 export interface SpyfallPublicState {

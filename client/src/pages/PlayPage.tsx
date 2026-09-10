@@ -10,15 +10,15 @@ import { useRoomStore } from "../stores/roomStore";
 import { useGameStore } from "../stores/gameStore";
 import { useAuthStore } from "../stores/authStore";
 import { GAME_COMPONENTS } from "../games/registry";
-import { extractErrorMessage } from "../services/api";
-import type { Room } from "../types";
+import { api, extractErrorMessage } from "../services/api";
+import type { Room, Scoreboard } from "../types";
 
 export function PlayPage() {
   const { roomCode } = useParams<{ roomCode: string }>();
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
   const { room, setRoom, clearRoom } = useRoomStore();
-  const { publicState, privateState, setState, clear } = useGameStore();
+  const { publicState, privateState, scoreboard, setState, setScoreboard, clear } = useGameStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +30,17 @@ export function PlayPage() {
     const socket = connectSocket();
     let cancelled = false;
 
+    function refreshScoreboard() {
+      api
+        .get<{ scoreboard: Scoreboard }>(`/rooms/${roomCode}/scoreboard`)
+        .then((res) => {
+          if (!cancelled) setScoreboard(res.data.scoreboard);
+        })
+        .catch(() => {
+          // Non-critical - the score table just won't show yet.
+        });
+    }
+
     async function ensureJoined() {
       try {
         const response = await emitWithAck<{ room: Room }>("room:join", { roomCode });
@@ -38,7 +49,9 @@ export function PlayPage() {
           setError(response.error);
           return;
         }
+        setError(null);
         setRoom(response.room);
+        refreshScoreboard();
         if (response.room.status === "WAITING") {
           // Game already ended (or never started) - send them to the lobby.
           navigate(`/lobby/${response.room.roomCode}`, { replace: true });
@@ -54,6 +67,10 @@ export function PlayPage() {
       setState(payload.public, payload.private);
     }
 
+    function handleGameEnd(payload: { scoreboard?: Scoreboard | null }) {
+      if (payload.scoreboard) setScoreboard(payload.scoreboard);
+    }
+
     function handleRoomUpdate({ room: updatedRoom }: { room: Room }) {
       setRoom(updatedRoom);
     }
@@ -65,15 +82,23 @@ export function PlayPage() {
     }
 
     socket.on("game:state", handleGameState);
+    socket.on("game:end", handleGameEnd);
     socket.on("room:update", handleRoomUpdate);
     socket.on("room:disbanded", handleDisbanded);
-    ensureJoined();
+    // Re-run the join on every (re)connect, not just the first one - a brief
+    // network drop otherwise leaves this socket silently out of the room
+    // (Socket.IO's own auto-reconnect only restores the transport, not
+    // room membership or which listeners the server thinks are "in").
+    socket.on("connect", ensureJoined);
+    if (socket.connected) ensureJoined();
 
     return () => {
       cancelled = true;
       socket.off("game:state", handleGameState);
+      socket.off("game:end", handleGameEnd);
       socket.off("room:update", handleRoomUpdate);
       socket.off("room:disbanded", handleDisbanded);
+      socket.off("connect", ensureJoined);
       clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,6 +187,7 @@ export function PlayPage() {
         selfUserId={currentUser?.id}
         onAction={handleAction}
         onReplay={handleReplay}
+        scoreboard={scoreboard}
       />
       {showLeaveConfirm && (
         <ConfirmModal

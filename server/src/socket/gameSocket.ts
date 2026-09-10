@@ -3,6 +3,7 @@ import { GAME_ENGINE_EVENTS } from "../games/core/types";
 import type { BaseGame } from "../games/core/BaseGame";
 import { RoomService } from "../services/RoomService";
 import { GameSessionService } from "../services/GameSessionService";
+import { ScoreboardService } from "../services/ScoreboardService";
 import { withPresence } from "./socketUtils";
 import type { AppServer, AppSocket } from "./socketAuth";
 
@@ -57,7 +58,8 @@ async function finalizeGame(io: AppServer, roomId: string) {
   await RoomService.markWaiting(roomId);
   await RoomService.resetReadiness(roomId);
 
-  io.to(roomId).emit("game:end", { result });
+  const scoreboard = await ScoreboardService.getScoreboardByRoomId(roomId).catch(() => null);
+  io.to(roomId).emit("game:end", { result, scoreboard });
 
   const room = await RoomService.getPublicRoomById(roomId).catch(() => null);
   if (room) {

@@ -9,7 +9,7 @@ import { PlayerList } from "./PlayerList";
 import { Voting } from "./Voting";
 import { SPYFALL_ACTIONS } from "./types";
 import type { SpyfallPublicState, SpyfallPrivateState } from "./types";
-import type { Room } from "../../types";
+import type { Room, Scoreboard } from "../../types";
 
 interface SpyfallGameProps {
   room: Room;
@@ -18,6 +18,7 @@ interface SpyfallGameProps {
   selfUserId?: string;
   onAction: (actionType: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
   onReplay: () => Promise<{ ok: boolean; error?: string }>;
+  scoreboard: Scoreboard | null;
 }
 
 export function SpyfallGame({
@@ -27,6 +28,7 @@ export function SpyfallGame({
   selfUserId,
   onAction,
   onReplay,
+  scoreboard,
 }: SpyfallGameProps) {
   const navigate = useNavigate();
   const [targetUserId, setTargetUserId] = useState<string>("");
@@ -40,11 +42,25 @@ export function SpyfallGame({
   const isVoting = publicState.phase === "VOTING";
   const hasCalledVote = Boolean(selfUserId && publicState.voteCallers.includes(selfUserId));
   const isHost = room.hostId === selfUserId;
+  const matchComplete = scoreboard?.matchComplete ?? false;
 
   const otherPlayers = useMemo(
     () => publicState.players.filter((p) => p.userId !== selfUserId),
     [publicState.players, selfUserId]
   );
+
+  const usernameByUserId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of publicState.players) map.set(p.userId, p.username);
+    for (const p of scoreboard?.players ?? []) {
+      if (!map.has(p.userId)) map.set(p.userId, p.username);
+    }
+    return map;
+  }, [publicState.players, scoreboard]);
+
+  const currentRoundNumber = scoreboard
+    ? Math.min(scoreboard.roundsPlayed + (isFinished ? 0 : 1), scoreboard.numberOfRounds ?? Infinity)
+    : 1;
 
   async function runAction(actionType: string, payload: unknown, onSuccess?: () => void) {
     setActionError(null);
@@ -102,6 +118,11 @@ export function SpyfallGame({
           <div>
             <p className="text-sm text-slate-400">{room.roomName}</p>
             <h1 className="text-xl font-semibold text-white">{room.game.name}</h1>
+            {scoreboard?.numberOfRounds && (
+              <p className="mt-1 text-xs text-slate-500">
+                รอบที่ {currentRoundNumber} / {scoreboard.numberOfRounds}
+              </p>
+            )}
           </div>
           <Timer endsAt={publicState.timerEndsAt} />
         </Card>
@@ -121,8 +142,35 @@ export function SpyfallGame({
               สปายคือ <span className="text-white">{publicState.result.spyUsername}</span> -
               สถานที่คือ <span className="text-white">{publicState.result.location}</span>
             </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              {isHost ? (
+
+            {Object.values(publicState.result.scores ?? {}).some((pts) => pts > 0) && (
+              <div className="mt-4 rounded-lg bg-slate-900/60 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  คะแนนที่ได้รอบนี้
+                </p>
+                <ul className="mt-2 flex flex-col gap-1">
+                  {Object.entries(publicState.result.scores)
+                    .filter(([, pts]) => pts > 0)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([userId, pts]) => (
+                      <li
+                        key={userId}
+                        className="flex items-center justify-between text-sm text-slate-300"
+                      >
+                        <span>{usernameByUserId.get(userId) ?? "ไม่ทราบชื่อ"}</span>
+                        <span className="font-semibold text-emerald-400">+{pts}</span>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {matchComplete ? (
+                <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
+                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง
+                </p>
+              ) : isHost ? (
                 <Button onClick={handleReplay} isLoading={isReplaying}>
                   เล่นอีกครั้ง
                 </Button>
@@ -134,6 +182,50 @@ export function SpyfallGame({
               </Button>
             </div>
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
+          </Card>
+        )}
+
+        {scoreboard && scoreboard.roundsPlayed > 0 && (
+          <Card>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-300">ตารางคะแนนรวม</h2>
+              {scoreboard.numberOfRounds && (
+                <span className="text-xs text-slate-500">
+                  เล่นแล้ว {scoreboard.roundsPlayed} / {scoreboard.numberOfRounds} รอบ
+                </span>
+              )}
+            </div>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-max text-left text-sm">
+                <thead>
+                  <tr className="text-xs uppercase text-slate-500">
+                    <th className="pb-2 pr-3">ผู้เล่น</th>
+                    {scoreboard.rounds.map((r) => (
+                      <th key={r.round} className="px-2 pb-2 text-center">
+                        รอบ {r.round}
+                      </th>
+                    ))}
+                    <th className="pb-2 pl-3 text-right">รวม</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scoreboard.players.map((p) => {
+                    const total = scoreboard.totals.find((t) => t.userId === p.userId)?.total ?? 0;
+                    return (
+                      <tr key={p.userId} className="border-t border-slate-800">
+                        <td className="py-2 pr-3 text-slate-200">{p.username}</td>
+                        {scoreboard.rounds.map((r) => (
+                          <td key={r.round} className="px-2 py-2 text-center text-slate-400">
+                            {r.scores[p.userId] ?? 0}
+                          </td>
+                        ))}
+                        <td className="py-2 pl-3 text-right font-semibold text-white">{total}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </Card>
         )}
 

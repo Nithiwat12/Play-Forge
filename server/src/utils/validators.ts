@@ -22,6 +22,9 @@ export const loginSchema = z.object({
 export const roomSettingsSchema = z.object({
   // Minutes, converted to seconds before being stored/used by the engine.
   discussionMinutes: z.coerce.number().int().min(3).max(20).optional(),
+  // How many rounds this room's match will run for. Left unset means
+  // unlimited - the host can keep hitting "replay" indefinitely.
+  numberOfRounds: z.coerce.number().int().min(1).max(20).optional(),
 });
 
 export const createRoomSchema = z.object({

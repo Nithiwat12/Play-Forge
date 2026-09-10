@@ -301,8 +301,8 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     });
   }
 
-  private conclude(result: SpyfallResult): void {
-    this.result = result;
+  private conclude(result: Omit<SpyfallResult, "scores">): void {
+    this.result = { ...result, scores: this.computeScores(result) };
     this.phase = "FINISHED";
     this.finished = true;
     if (this.timer) {
@@ -311,6 +311,31 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     }
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
     this.emit(GAME_ENGINE_EVENTS.ENDED);
+  }
+
+  // Scoring: the Spy escaping unnoticed (time runs out, a tie, or the group
+  // votes the wrong person) is worth less than the Spy pulling off a
+  // correct location guess, which takes real nerve. On the other side,
+  // only the specific players whose own vote actually named the real Spy
+  // get credit for the catch - not the whole non-Spy team by default.
+  private computeScores(result: Omit<SpyfallResult, "scores">): Record<string, number> {
+    const scores: Record<string, number> = {};
+    for (const p of this.getPlayers()) {
+      scores[p.userId] = 0;
+    }
+
+    if (result.winner === "SPY") {
+      const points = result.spyGuessCorrect ? 3 : 1;
+      scores[result.spyUserId] = (scores[result.spyUserId] ?? 0) + points;
+    } else {
+      for (const vote of result.votes ?? []) {
+        if (vote.targetUserId === result.spyUserId) {
+          scores[vote.voterUserId] = (scores[vote.voterUserId] ?? 0) + 1;
+        }
+      }
+    }
+
+    return scores;
   }
 
   private appendLog(entry: SpyfallLogEntry): void {

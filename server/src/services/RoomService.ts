@@ -112,9 +112,17 @@ export const RoomService = {
 
     // Minutes are friendlier for a host to type; the engine works in
     // seconds, so the conversion happens once, right at creation time.
-    const settings: RoomSettings | undefined = input.settings?.discussionMinutes
-      ? { discussionSeconds: input.settings.discussionMinutes * 60 }
-      : undefined;
+    const settings: RoomSettings | undefined =
+      input.settings?.discussionMinutes || input.settings?.numberOfRounds
+        ? {
+            ...(input.settings.discussionMinutes
+              ? { discussionSeconds: input.settings.discussionMinutes * 60 }
+              : {}),
+            ...(input.settings.numberOfRounds
+              ? { numberOfRounds: input.settings.numberOfRounds }
+              : {}),
+          }
+        : undefined;
 
     const room = await prisma.room.create({
       data: {
@@ -268,6 +276,19 @@ export const RoomService = {
       throw ApiError.badRequest(
         `${room.game.name} ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คนถึงจะเริ่มได้`
       );
+    }
+    if (room.players.some((p) => !p.isReady)) {
+      throw ApiError.badRequest("ผู้เล่นยังไม่พร้อมครบทุกคน");
+    }
+
+    const settings = (room.settings as RoomSettings | null) ?? null;
+    if (settings?.numberOfRounds) {
+      const roundsPlayed = await prisma.gameSession.count({
+        where: { roomId, status: "COMPLETED" },
+      });
+      if (roundsPlayed >= settings.numberOfRounds) {
+        throw ApiError.conflict("เล่นครบจำนวนรอบที่กำหนดไว้แล้ว");
+      }
     }
 
     return room;

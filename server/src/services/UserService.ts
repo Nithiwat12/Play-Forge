@@ -21,6 +21,10 @@ export const UserService = {
   async getHistoryForUser(userId: string): Promise<HistoryEntry[]> {
     const sessions = await prisma.gameSession.findMany({
       where: {
+        // A session still IN_PROGRESS isn't "history" yet - its room already
+        // shows up under the active-rooms section, so surfacing it here too
+        // (with a raw, half-finished status badge) is just confusing.
+        status: { not: "IN_PROGRESS" },
         room: {
           players: {
             some: { userId },
