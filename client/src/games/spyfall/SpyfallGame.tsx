@@ -101,7 +101,7 @@ export function SpyfallGame({
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm text-slate-400">{room.roomName}</p>
-            <h1 className="text-xl font-semibold text-white">Spyfall</h1>
+            <h1 className="text-xl font-semibold text-white">{room.game.name}</h1>
           </div>
           <Timer endsAt={publicState.timerEndsAt} />
         </Card>

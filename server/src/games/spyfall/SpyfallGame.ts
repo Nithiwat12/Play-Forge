@@ -69,10 +69,10 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
 
   start(): void {
     if (this.players.size < SPYFALL_MIN_PLAYERS) {
-      throw new Error(`Spyfall ต้องมีผู้เล่นอย่างน้อย ${SPYFALL_MIN_PLAYERS} คน`);
+      throw new Error(`Spy Hunt ต้องมีผู้เล่นอย่างน้อย ${SPYFALL_MIN_PLAYERS} คน`);
     }
     if (this.players.size > SPYFALL_MAX_PLAYERS) {
-      throw new Error(`Spyfall รองรับผู้เล่นได้สูงสุด ${SPYFALL_MAX_PLAYERS} คน`);
+      throw new Error(`Spy Hunt รองรับผู้เล่นได้สูงสุด ${SPYFALL_MAX_PLAYERS} คน`);
     }
 
     this.discussionSeconds = this.resolveDiscussionSeconds();

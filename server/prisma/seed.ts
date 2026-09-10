@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 // GameRegistry - the platform code never needs to change.
 const games = [
   {
-    name: "สายลับ (Spyfall)",
+    name: "Spy Hunt",
     slug: "spyfall",
     description:
       "ผู้เล่นคนหนึ่งจะเป็นสปายลับ ส่วนคนอื่น ๆ จะรู้สถานที่และบทบาทของตัวเองที่นั่น ถามคำถามให้ฉลาด จับผิดคนที่ดูไม่เข้าพวก แล้วโหวตหาสปายให้ได้ก่อนหมดเวลา",
