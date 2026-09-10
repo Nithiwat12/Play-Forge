@@ -1,0 +1,75 @@
+import { useState } from "react";
+import type { FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { api, extractErrorMessage } from "../services/api";
+import { useAuthStore } from "../stores/authStore";
+import { Button } from "../components/common/Button";
+import { Input } from "../components/common/Input";
+import { Card } from "../components/common/Card";
+import type { User } from "../types";
+
+export function Login() {
+  const navigate = useNavigate();
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setIsLoading(true);
+    try {
+      const { data } = await api.post<{ user: User; token: string }>("/auth/login", {
+        email,
+        password,
+      });
+      setAuth(data.user, data.token);
+      navigate("/home");
+    } catch (err) {
+      setError(extractErrorMessage(err, "Could not log in"));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <Card className="w-full max-w-sm">
+        <h1 className="mb-1 text-2xl font-semibold text-white">Welcome back</h1>
+        <p className="mb-6 text-sm text-slate-400">Log in to join the game.</p>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <Input
+            id="email"
+            type="email"
+            label="Email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+          />
+          <Input
+            id="password"
+            type="password"
+            label="Password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+          {error && <p className="text-sm text-red-400">{error}</p>}
+          <Button type="submit" isLoading={isLoading} className="mt-2 w-full">
+            Log in
+          </Button>
+        </form>
+        <p className="mt-6 text-center text-sm text-slate-400">
+          Don't have an account?{" "}
+          <Link to="/register" className="text-brand-400 hover:text-brand-300">
+            Register
+          </Link>
+        </p>
+      </Card>
+    </div>
+  );
+}

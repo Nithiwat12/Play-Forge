@@ -1,0 +1,128 @@
+// Prisma schema for the multiplayer board game platform.
+// Core platform models are game-agnostic; Spyfall-specific data lives only
+// inside GameSession.stateSnapshot / GameHistory.resultData (JSON), never as
+// dedicated columns, so future games don't require schema changes here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon (and similar poolers): DATABASE_URL is the pooled connection used
+  // at runtime; migrations need a direct, unpooled connection instead.
+  directUrl = env("DIRECT_URL")
+}
+
+enum RoomStatus {
+  WAITING
+  PLAYING
+  FINISHED
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABORTED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  hostedRooms  Room[]       @relation("RoomHost")
+  roomPlayers  RoomPlayer[]
+
+  @@map("users")
+}
+
+model Game {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String
+  minPlayers  Int      @default(2)
+  maxPlayers  Int      @default(12)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  rooms        Room[]
+  gameSessions GameSession[]
+
+  @@map("games")
+}
+
+model Room {
+  id           String     @id @default(uuid())
+  gameId       String
+  roomCode     String     @unique
+  roomName     String
+  hostId       String
+  passwordHash String?
+  maxPlayers   Int
+  status       RoomStatus @default(WAITING)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  game     Game         @relation(fields: [gameId], references: [id])
+  host     User         @relation("RoomHost", fields: [hostId], references: [id])
+  players  RoomPlayer[]
+  sessions GameSession[]
+
+  @@index([gameId])
+  @@map("rooms")
+}
+
+model RoomPlayer {
+  id       String    @id @default(uuid())
+  roomId   String
+  userId   String
+  isHost   Boolean   @default(false)
+  isReady  Boolean   @default(false)
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@map("room_players")
+}
+
+model GameSession {
+  id         String        @id @default(uuid())
+  roomId     String
+  gameId     String
+  status     SessionStatus @default(IN_PROGRESS)
+  startedAt  DateTime      @default(now())
+  finishedAt DateTime?
+
+  // Server-authoritative snapshot of the game's public+private state at end
+  // of session, stored as JSON so each game defines its own shape.
+  stateSnapshot Json?
+
+  room    Room          @relation(fields: [roomId], references: [id])
+  game    Game          @relation(fields: [gameId], references: [id])
+  history GameHistory[]
+
+  @@index([roomId])
+  @@map("game_sessions")
+}
+
+model GameHistory {
+  id            String   @id @default(uuid())
+  gameSessionId String
+  resultData    Json
+  createdAt     DateTime @default(now())
+
+  gameSession GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Cascade)
+
+  @@index([gameSessionId])
+  @@map("game_history")
+}

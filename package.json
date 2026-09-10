@@ -1,0 +1,16 @@
+{
+  "name": "board-game-platform",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Scalable multiplayer board game platform (Spyfall is the first game)",
+  "scripts": {
+    "install:all": "npm install --prefix server && npm install --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "prisma:migrate": "npm run prisma:migrate --prefix server",
+    "prisma:generate": "npm run prisma:generate --prefix server",
+    "seed": "npm run seed --prefix server",
+    "build:server": "npm run build --prefix server",
+    "build:client": "npm run build --prefix client"
+  }
+}

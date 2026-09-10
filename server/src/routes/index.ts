@@ -1,0 +1,14 @@
+import { Router } from "express";
+import authRoutes from "./authRoutes";
+import gameRoutes from "./gameRoutes";
+import roomRoutes from "./roomRoutes";
+import userRoutes from "./userRoutes";
+
+const router = Router();
+
+router.use("/auth", authRoutes);
+router.use("/games", gameRoutes);
+router.use("/rooms", roomRoutes);
+router.use("/users", userRoutes);
+
+export default router;
