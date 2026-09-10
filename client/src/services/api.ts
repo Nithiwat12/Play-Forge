@@ -6,6 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 export const api = axios.create({
   baseURL: API_URL,
   withCredentials: true,
+  timeout: 15000,
 });
 
 // Attach the JWT (persisted by authStore) to every request. The server
@@ -31,7 +32,7 @@ api.interceptors.response.use(
 
 export function extractErrorMessage(err: unknown, fallback = "เกิดข้อผิดพลาดบางอย่าง"): string {
   if (axios.isAxiosError(err)) {
-    return err.response?.data?.error?.message ?? fallback;
+    return err.response?.data?.error?.message ?? (err.code === "ECONNABORTED" ? "เซิร์ฟเวอร์ตอบช้า กรุณาลองใหม่" : fallback);
   }
-  return fallback;
+  return err instanceof Error ? err.message : fallback;
 }

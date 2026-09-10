@@ -27,7 +27,7 @@ function PageFallback() {
 }
 
 export function App() {
-  const { token, setUser, logout } = useAuthStore();
+  const { token, setUser } = useAuthStore();
 
   // Revalidates the persisted token on load and refreshes the cached
   // user - if the token is stale/invalid the response interceptor in
@@ -37,7 +37,7 @@ export function App() {
     api
       .get<{ user: User }>("/auth/me")
       .then(({ data }) => setUser(data.user))
-      .catch(() => logout());
+      .catch(() => { /* The API interceptor logs out only on 401. */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { GameManager } from "../games/core/GameManager";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../utils/ApiError";
@@ -12,12 +13,11 @@ const MAX_CODE_ATTEMPTS = 10;
 
 // Prisma `include` shape shared by every query that needs to build a
 // PublicRoom, kept in one place so the two never drift apart.
-const roomWithRelations = {
+export const roomWithRelations = {
   game: true,
-  host: true,
   players: {
     where: { leftAt: null },
-    include: { user: true },
+    include: { user: { select: { id: true, username: true } } },
     orderBy: { joinedAt: "asc" as const },
   },
 } satisfies Prisma.RoomInclude;
@@ -165,11 +165,24 @@ export const RoomService = {
   async joinRoom(userId: string, input: JoinRoomInput): Promise<PublicRoom> {
     const room = await findByCode(input.roomCode);
 
+    if (room.status === "FINISHED") throw ApiError.conflict("ห้องนี้ปิดแล้ว");
+
     const alreadyIn = room.players.find((p) => p.userId === userId);
     if (alreadyIn) {
       return toPublicRoom(room);
     }
 
+    // Also recover seats left by clients from before room:pause existed.
+    // Only the original engine roster may rejoin a round already underway.
+    const originalPlayer = room.status === "PLAYING" &&
+      GameManager.getGame(room.id)?.getPlayers().some((p) => p.userId === userId);
+    if (originalPlayer) {
+      await prisma.roomPlayer.update({
+        where: { roomId_userId: { roomId: room.id, userId } },
+        data: { leftAt: null, isReady: false, isHost: room.hostId === userId },
+      });
+      return toPublicRoom(await findById(room.id));
+    }
     if (room.status !== "WAITING") {
       throw ApiError.conflict("เกมนี้เริ่มไปแล้ว");
     }
@@ -303,7 +316,9 @@ export const RoomService = {
   },
 
   async markWaiting(roomId: string) {
-    await prisma.room.update({ where: { id: roomId }, data: { status: "WAITING" } });
+    await prisma.room.updateMany({
+      where: { id: roomId, status: "PLAYING" }, data: { status: "WAITING" },
+    });
   },
 
   /** Called when a game ends and the room returns to its lobby. */

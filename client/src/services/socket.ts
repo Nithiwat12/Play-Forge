@@ -12,6 +12,11 @@ export function connectSocket(): Socket {
   }
 
   const token = useAuthStore.getState().token;
+  if (socket) {
+    socket.auth = { token };
+    socket.connect();
+    return socket;
+  }
   socket = io(SOCKET_URL, {
     auth: { token },
     autoConnect: true,
@@ -43,13 +48,17 @@ export function emitWithAck<TResponse extends Record<string, unknown> = Record<s
 ): Promise<AckResponse<TResponse>> {
   return new Promise((resolve, reject) => {
     const activeSocket = getSocket();
-    if (!activeSocket) {
+    if (!activeSocket?.connected) {
       reject(new Error("Not connected to the server"));
       return;
     }
     activeSocket.timeout(8000).emit(event, payload, (err: Error | null, response: AckResponse<TResponse>) => {
       if (err) {
         reject(new Error("The server did not respond in time"));
+        return;
+      }
+      if (!response || typeof response.ok !== "boolean") {
+        reject(new Error("เซิร์ฟเวอร์ส่งข้อมูลไม่ครบ กรุณาลองใหม่"));
         return;
       }
       resolve(response);

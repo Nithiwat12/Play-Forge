@@ -1,3 +1,4 @@
+import { abortRoomGame } from "./gameSocket";
 import { RoomService } from "../services/RoomService";
 import { GameManager } from "../games/core/GameManager";
 import { GameSessionService } from "../services/GameSessionService";
@@ -6,7 +7,7 @@ import { withPresence } from "./socketUtils";
 import { joinRoomSchema } from "../utils/validators";
 import type { AppServer, AppSocket } from "./socketAuth";
 
-type Ack = (response: { ok: true; room?: unknown } | { ok: false; error: string }) => void;
+type Ack = (response: { ok: true; room?: unknown; gameState?: { roomId: string; public: unknown; private: unknown } | null } | { ok: false; error: string }) => void;
 const noopAck: Ack = () => {};
 
 /**
@@ -46,7 +47,21 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
         const input = joinRoomSchema.parse(payload ?? {});
         const room = await RoomService.joinRoom(userId, input);
 
-        socket.join(room.id);
+        const activeGame = GameManager.getGame(room.id);
+        if (room.status === "PLAYING" && !activeGame) {
+          throw new Error("ไม่พบรอบเกมที่กำลังเล่น กรุณากลับหน้าประวัติหรือลองใหม่อีกครั้ง");
+        }
+        if (activeGame) activeGame.reconnectPlayer(userId);
+
+        // One socket subscribes to only one game: avoid stale room events.
+        const previousRoomId = socket.data.currentRoomId;
+        if (previousRoomId && previousRoomId !== room.id) {
+          await socket.leave(previousRoomId);
+          if (RoomPresence.removeConnection(previousRoomId, userId, socket.id)) {
+            GameManager.getGame(previousRoomId)?.removePlayer(userId);
+          }
+        }
+        await socket.join(room.id);
         RoomPresence.addConnection(room.id, userId, socket.id);
         socket.data.currentRoomId = room.id;
 
@@ -64,20 +79,35 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
         // loading spinner forever - the only other place state is ever
         // broadcast is on the engine's STATE_CHANGED/ENDED events, which
         // only fire in response to some *other* player's next action.
-        const activeGame = GameManager.getGame(room.id);
-        if (activeGame) {
-          socket.emit("game:state", {
-            public: activeGame.getPublicState(),
-            private: activeGame.getPrivateState(userId),
-          });
-        }
-
-        ack({ ok: true, room: updated });
+        const gameState = activeGame ? {
+          roomId: room.id,
+          public: activeGame.getPublicState(),
+          private: activeGame.getPrivateState(userId),
+        } : null;
+        // Room and private snapshot arrive in one acknowledgement. A route
+        // transition can no longer lose the one-shot initial state event.
+        ack({ ok: true, room: updated, gameState });
       } catch (err) {
         ack({ ok: false, error: err instanceof Error ? err.message : "เข้าห้องไม่สำเร็จ" });
       }
     }
   );
+
+  socket.on("room:pause", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
+    try {
+      if (socket.data.currentRoomId !== roomId) throw new Error("คุณไม่ได้อยู่ในห้องนี้");
+      await socket.leave(roomId);
+      delete socket.data.currentRoomId;
+      if (RoomPresence.removeConnection(roomId, userId, socket.id)) {
+        GameManager.getGame(roomId)?.removePlayer(userId);
+      }
+      ack({ ok: true });
+      const room = await RoomService.getPublicRoomById(roomId).catch(() => null);
+      if (room) io.to(roomId).emit("room:update", { room: withPresence(room) });
+    } catch (err) {
+      ack({ ok: false, error: err instanceof Error ? err.message : "ออกจากเกมไม่สำเร็จ" });
+    }
+  });
 
   socket.on("room:leave", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
     try {
@@ -122,8 +152,8 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
   socket.on("room:disband", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
     try {
       await RoomService.disbandRoom(userId, roomId);
+      abortRoomGame(roomId);
       await GameSessionService.abortActiveForRoom(roomId);
-      GameManager.endGame(roomId);
 
       await broadcastRoomClosed(io, roomId, "โฮสต์ได้ยุบห้องนี้แล้ว");
 
@@ -139,6 +169,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
 
     const fullyDisconnected = RoomPresence.removeConnection(roomId, userId, socket.id);
     if (!fullyDisconnected) return;
+    GameManager.getGame(roomId)?.removePlayer(userId);
 
     // A dropped connection is NOT the same as an explicit room:leave - the
     // player keeps their seat (and their game role, if a game is active)

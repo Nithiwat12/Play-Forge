@@ -5,6 +5,20 @@ import type { GameResult } from "../games/core/types";
 // Knows nothing about any specific game's rules - it only ever handles
 // the opaque GameResult shape every BaseGame.end() returns.
 export const GameSessionService = {
+  async recoverInterruptedGames() {
+    await prisma.$transaction([
+      prisma.gameSession.updateMany({
+        where: { status: "IN_PROGRESS" },
+        data: { status: "ABORTED", finishedAt: new Date() },
+      }),
+      prisma.roomPlayer.updateMany({
+        where: { leftAt: null, room: { status: "PLAYING" } },
+        data: { isReady: false },
+      }),
+      prisma.room.updateMany({ where: { status: "PLAYING" }, data: { status: "WAITING" } }),
+    ]);
+  },
+
   async createSession(roomId: string, gameId: string) {
     return prisma.gameSession.create({
       data: { roomId, gameId, status: "IN_PROGRESS" },

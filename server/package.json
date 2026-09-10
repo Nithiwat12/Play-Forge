@@ -14,7 +14,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/run-tests.cjs"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

@@ -56,6 +56,14 @@ class GameManagerClass {
     return result;
   }
 
+  abortGame(roomId: string): void {
+    const game = this.activeGames.get(roomId);
+    if (!game) return;
+    this.activeGames.delete(roomId);
+    game.removeAllListeners();
+    game.end(); // Clears the engine timer without awarding a result.
+  }
+
   isGameActive(roomId: string): boolean {
     return this.activeGames.has(roomId);
   }

@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma";
-import { RoomService } from "./RoomService";
+import { RoomService, roomWithRelations } from "./RoomService";
 import { ApiError } from "../utils/ApiError";
 import type { PublicRoom } from "../types";
 
@@ -97,10 +97,10 @@ export const UserService = {
       },
       orderBy: { updatedAt: "desc" },
       take: 20,
-      select: { id: true },
+      include: roomWithRelations,
     });
 
-    return Promise.all(rooms.map((r) => RoomService.getPublicRoomById(r.id)));
+    return rooms.map((room) => RoomService.toPublicRoom(room));
   },
 
   // Rooms this user left (leftAt set on their RoomPlayer row) that still
@@ -119,9 +119,9 @@ export const UserService = {
       },
       orderBy: { updatedAt: "desc" },
       take: 20,
-      select: { id: true },
+      include: roomWithRelations,
     });
 
-    return Promise.all(rooms.map((r) => RoomService.getPublicRoomById(r.id)));
+    return rooms.map((room) => RoomService.toPublicRoom(room));
   },
 };

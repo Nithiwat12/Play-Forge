@@ -111,7 +111,9 @@ export function HistoryPage() {
                       {room.status === "WAITING" ? "รอในล็อบบี้" : "กำลังเล่นอยู่"}
                     </p>
                   </div>
-                  <Button variant="secondary" onClick={() => handleRejoin(room)}>
+                  <Button variant="secondary" onClick={() => room.hasPassword && room.status === "WAITING"
+                    ? navigate(`/games/${room.game.slug}/join`)
+                    : handleRejoin(room)}>
                     เข้าห้องอีกครั้ง
                   </Button>
                 </Card>

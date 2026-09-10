@@ -34,8 +34,13 @@ function broadcastGameState(io: AppServer, roomId: string, game: BaseGame) {
     const memberSocket = io.sockets.sockets.get(socketId);
     if (!memberSocket) continue;
     const privateState = game.getPrivateState(memberSocket.data.user.id);
-    memberSocket.emit("game:state", { public: publicState, private: privateState });
+    memberSocket.emit("game:state", { roomId, public: publicState, private: privateState });
   }
+}
+
+export function abortRoomGame(roomId: string): void {
+  activeSessions.delete(roomId);
+  GameManager.abortGame(roomId);
 }
 
 async function finalizeGame(io: AppServer, roomId: string) {
@@ -111,6 +116,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
       ack: Ack = noopAck
     ) => {
       try {
+        if (!socket.rooms.has(roomId)) throw new Error("กรุณากลับเข้าห้องก่อนทำรายการ");
         GameManager.handleAction(roomId, userId, actionType, payload);
         ack({ ok: true });
       } catch (err) {

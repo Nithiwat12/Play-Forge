@@ -1,3 +1,4 @@
+import { RoomPresence } from "../socket/roomPresence";
 import { RoomService } from "./RoomService";
 import { broadcastRoomClosed } from "../socket/roomSocket";
 import type { AppServer } from "../socket/socketAuth";
@@ -29,6 +30,7 @@ async function sweepStaleRooms(io: AppServer): Promise<void> {
   const staleRoomIds = await RoomService.findStaleWaitingRoomIds(IDLE_WAITING_MS);
 
   for (const roomId of staleRoomIds) {
+    if (RoomPresence.getConnectedUserIds(roomId).length > 0) continue;
     try {
       await RoomService.forceCloseRoom(roomId);
       await broadcastRoomClosed(io, roomId, "ห้องนี้ถูกยุบเนื่องจากไม่มีความเคลื่อนไหวเกิน 10 นาที");

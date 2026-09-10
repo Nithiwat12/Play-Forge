@@ -5,7 +5,8 @@ import { Spinner } from "../components/common/Spinner";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { ConfirmModal } from "../components/common/ConfirmModal";
-import { connectSocket, emitWithAck, getSocket } from "../services/socket";
+import { subscribeToRoom } from "../services/roomConnection";
+import { connectSocket, emitWithAck } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
 import { useGameStore } from "../stores/gameStore";
 import { useAuthStore } from "../stores/authStore";
@@ -25,8 +26,14 @@ export function PlayPage() {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
 
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
-    if (!roomCode) return;
+    if (!roomCode) { setError("ไม่พบรหัสห้อง"); setIsLoading(false); return; }
+    setIsLoading(true);
+    setError(null);
+    clearRoom();
+    clear();
     const socket = connectSocket();
     let cancelled = false;
 
@@ -41,29 +48,8 @@ export function PlayPage() {
         });
     }
 
-    async function ensureJoined() {
-      try {
-        const response = await emitWithAck<{ room: Room }>("room:join", { roomCode });
-        if (cancelled) return;
-        if (!response.ok) {
-          setError(response.error);
-          return;
-        }
-        setError(null);
-        setRoom(response.room);
-        refreshScoreboard();
-        if (response.room.status === "WAITING") {
-          // Game already ended (or never started) - send them to the lobby.
-          navigate(`/lobby/${response.room.roomCode}`, { replace: true });
-        }
-      } catch (err) {
-        if (!cancelled) setError(extractErrorMessage(err, "ไม่สามารถเข้าเกมได้"));
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
-    function handleGameState(payload: { public: unknown; private: unknown }) {
+    function handleGameState(payload: { roomId: string; public: unknown; private: unknown }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
       setState(payload.public, payload.private);
     }
 
@@ -72,6 +58,7 @@ export function PlayPage() {
     }
 
     function handleRoomUpdate({ room: updatedRoom }: { room: Room }) {
+      if (updatedRoom.roomCode !== roomCode) return;
       setRoom(updatedRoom);
     }
 
@@ -85,24 +72,41 @@ export function PlayPage() {
     socket.on("game:end", handleGameEnd);
     socket.on("room:update", handleRoomUpdate);
     socket.on("room:disbanded", handleDisbanded);
-    // Re-run the join on every (re)connect, not just the first one - a brief
-    // network drop otherwise leaves this socket silently out of the room
-    // (Socket.IO's own auto-reconnect only restores the transport, not
-    // room membership or which listeners the server thinks are "in").
-    socket.on("connect", ensureJoined);
-    if (socket.connected) ensureJoined();
+    const stopJoining = subscribeToRoom(socket, roomCode,
+      (response) => {
+        setError(null);
+        setRoom(response.room);
+        setIsLoading(false);
+        if (response.room.status === "FINISHED") {
+          setError("ห้องนี้ปิดแล้ว");
+          return;
+        }
+        if (response.room.status === "WAITING") {
+          navigate(`/lobby/${response.room.roomCode}`, { replace: true });
+          return;
+        }
+        if (!response.gameState || response.gameState.roomId !== response.room.id ||
+            response.gameState.public == null || response.gameState.private == null) {
+          setError("ไม่ได้รับข้อมูลเกม กรุณาลองใหม่หรือกลับหน้าประวัติ");
+          return;
+        }
+        setState(response.gameState.public, response.gameState.private);
+        refreshScoreboard();
+      },
+      (message) => { setError(message); setIsLoading(false); },
+    );
 
     return () => {
       cancelled = true;
+      stopJoining();
       socket.off("game:state", handleGameState);
       socket.off("game:end", handleGameEnd);
       socket.off("room:update", handleRoomUpdate);
       socket.off("room:disbanded", handleDisbanded);
-      socket.off("connect", ensureJoined);
       clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode]);
+  }, [roomCode, attempt]);
 
   // Stable identities (via useCallback, keyed on the room id rather than
   // the whole room object which is replaced on every room:update) so the
@@ -112,34 +116,38 @@ export function PlayPage() {
   const roomId = room?.id;
   const handleAction = useCallback(
     async (actionType: string, payload: unknown) => {
-      const response = await emitWithAck("game:action", { roomId, actionType, payload });
-      return response.ok ? { ok: true } : { ok: false, error: response.error };
+      try {
+        const response = await emitWithAck("game:action", { roomId, actionType, payload });
+        return response.ok ? { ok: true } : { ok: false, error: response.error };
+      } catch (err) { return { ok: false, error: extractErrorMessage(err) }; }
     },
     [roomId]
   );
 
   const handleReplay = useCallback(async () => {
-    const response = await emitWithAck("game:start", { roomId });
-    return response.ok ? { ok: true } : { ok: false, error: response.error };
+    try {
+      const response = await emitWithAck("game:start", { roomId });
+      return response.ok ? { ok: true } : { ok: false, error: response.error };
+    } catch (err) { return { ok: false, error: extractErrorMessage(err) }; }
   }, [roomId]);
 
-  function handleConfirmLeave() {
-    if (room) {
-      getSocket()?.emit("room:leave", { roomId: room.id });
+  async function leaveOrDisband(event: "room:pause" | "room:disband") {
+    if (!room) return;
+    try {
+      const response = await emitWithAck(event, { roomId: room.id });
+      if (!response.ok) throw new Error(response.error);
+      clearRoom();
+      clear();
+      navigate("/home");
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setShowLeaveConfirm(false);
+      setShowDisbandConfirm(false);
     }
-    clearRoom();
-    clear();
-    navigate("/home");
   }
-
-  function handleConfirmDisband() {
-    if (room) {
-      getSocket()?.emit("room:disband", { roomId: room.id });
-    }
-    clearRoom();
-    clear();
-    navigate("/home");
-  }
+  const handleConfirmLeave = () => { void leaveOrDisband("room:pause"); };
+  const handleConfirmDisband = () => { void leaveOrDisband("room:disband"); };
 
   if (isLoading) {
     return (
@@ -157,6 +165,8 @@ export function PlayPage() {
         <main className="mx-auto max-w-md px-4 py-6 sm:px-6 sm:py-10">
           <Card>
             <p className="text-sm text-red-400">{error ?? "ไม่พบห้องนี้"}</p>
+            <Button className="mt-4" onClick={() => setAttempt((n) => n + 1)}>ลองใหม่</Button>
+            <Button variant="ghost" onClick={() => navigate("/history")}>กลับหน้าประวัติ</Button>
           </Card>
         </main>
       </div>
@@ -165,13 +175,12 @@ export function PlayPage() {
 
   const GameComponent = GAME_COMPONENTS[room.game.slug];
 
-  if (!GameComponent || !publicState || !privateState) {
-    return (
-      <div className="min-h-screen">
-        <Navbar />
-        <Spinner className="mt-24" />
-      </div>
-    );
+  if (!GameComponent || publicState == null || privateState == null) {
+    return <div className="min-h-screen"><Navbar /><main className="mx-auto max-w-md px-4 py-10"><Card>
+      <p>{!GameComponent ? "เกมนี้ยังไม่รองรับ" : "ไม่ได้รับข้อมูลเกม กรุณาลองใหม่"}</p>
+      <Button className="mt-4" onClick={() => setAttempt((n) => n + 1)}>ลองใหม่</Button>
+      <Button variant="ghost" onClick={() => navigate("/history")}>กลับหน้าประวัติ</Button>
+    </Card></main></div>;
   }
 
   const isHost = room.hostId === currentUser?.id;

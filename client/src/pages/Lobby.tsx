@@ -7,7 +7,8 @@ import { Spinner } from "../components/common/Spinner";
 import { ConfirmModal } from "../components/common/ConfirmModal";
 import { RoomCodeBadge } from "../components/room/RoomCodeBadge";
 import { PlayerListItem } from "../components/room/PlayerListItem";
-import { connectSocket, emitWithAck, getSocket } from "../services/socket";
+import { subscribeToRoom } from "../services/roomConnection";
+import { connectSocket, emitWithAck } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
 import { useAuthStore } from "../stores/authStore";
 import { api, extractErrorMessage } from "../services/api";
@@ -25,8 +26,14 @@ export function Lobby() {
   const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
 
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
-    if (!roomCode) return;
+    if (!roomCode) { setError("ไม่พบรหัสห้อง"); setIsJoining(false); return; }
+    setIsJoining(true);
+    setError(null);
+    clearRoom();
+    setScoreboard(null);
     const socket = connectSocket();
     let cancelled = false;
 
@@ -41,35 +48,13 @@ export function Lobby() {
         });
     }
 
-    async function joinRoom() {
-      try {
-        const response = await emitWithAck<{ room: Room }>("room:join", { roomCode });
-        if (cancelled) return;
-        if (!response.ok) {
-          setError(response.error);
-          return;
-        }
-        setError(null);
-        setRoom(response.room);
-        refreshScoreboard();
-        if (response.room.status !== "WAITING") {
-          // The game is already running (or a network blip just reconnected
-          // us mid-round) - the lobby screen is stale, so follow straight
-          // into the game instead of stranding the player here.
-          navigate(`/play/${response.room.roomCode}`, { replace: true });
-        }
-      } catch (err) {
-        if (!cancelled) setError(extractErrorMessage(err, "เข้าล็อบบี้ไม่สำเร็จ"));
-      } finally {
-        if (!cancelled) setIsJoining(false);
-      }
-    }
-
     function handleRoomUpdate({ room: updatedRoom }: { room: Room }) {
+      if (updatedRoom.roomCode !== roomCode) return;
       setRoom(updatedRoom);
     }
 
     function handleGameStart({ room: updatedRoom }: { room: Room }) {
+      if (updatedRoom.roomCode !== roomCode) return;
       setRoom(updatedRoom);
       navigate(`/play/${updatedRoom.roomCode}`);
     }
@@ -82,26 +67,41 @@ export function Lobby() {
     socket.on("room:update", handleRoomUpdate);
     socket.on("game:start", handleGameStart);
     socket.on("room:disbanded", handleDisbanded);
-    // Re-run the join on every (re)connect, not just the first one, so a
-    // brief network drop doesn't silently leave this socket out of the
-    // room - see the identical comment in PlayPage.tsx.
-    socket.on("connect", joinRoom);
-    if (socket.connected) joinRoom();
+    const stopJoining = subscribeToRoom(socket, roomCode,
+      (response) => {
+        setError(null);
+        setRoom(response.room);
+        setIsJoining(false);
+        if (response.room.status === "FINISHED") {
+          setError("ห้องนี้ปิดแล้ว");
+          return;
+        }
+        if (response.room.status === "PLAYING") {
+          navigate(`/play/${response.room.roomCode}`, { replace: true });
+          return;
+        }
+        refreshScoreboard();
+      },
+      (message) => { setError(message); setIsJoining(false); },
+    );
 
     return () => {
       cancelled = true;
+      stopJoining();
       socket.off("room:update", handleRoomUpdate);
       socket.off("game:start", handleGameStart);
       socket.off("room:disbanded", handleDisbanded);
-      socket.off("connect", joinRoom);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode]);
+  }, [roomCode, attempt]);
 
   async function handleToggleReady() {
     if (!room) return;
     const isReady = !room.players.find((p) => p.userId === currentUser?.id)?.isReady;
-    await emitWithAck("room:ready", { roomId: room.id, isReady });
+    try {
+      const response = await emitWithAck("room:ready", { roomId: room.id, isReady });
+      if (!response.ok) setError(response.error);
+    } catch (err) { setError(extractErrorMessage(err)); }
   }
 
   async function handleStart() {
@@ -111,26 +111,25 @@ export function Lobby() {
     try {
       const response = await emitWithAck("game:start", { roomId: room.id });
       if (!response.ok) setError(response.error);
+    } catch (err) {
+      setError(extractErrorMessage(err));
     } finally {
       setIsStarting(false);
     }
   }
 
-  function handleLeave() {
-    if (room) {
-      getSocket()?.emit("room:leave", { roomId: room.id });
-    }
-    clearRoom();
-    navigate("/home");
+  async function leaveOrDisband(event: "room:leave" | "room:disband") {
+    if (!room) return;
+    try {
+      const response = await emitWithAck(event, { roomId: room.id });
+      if (!response.ok) throw new Error(response.error);
+      clearRoom();
+      navigate("/home");
+    } catch (err) { setError(extractErrorMessage(err)); }
+    finally { setShowDisbandConfirm(false); }
   }
-
-  function handleConfirmDisband() {
-    if (room) {
-      getSocket()?.emit("room:disband", { roomId: room.id });
-    }
-    clearRoom();
-    navigate("/home");
-  }
+  const handleLeave = () => { void leaveOrDisband("room:leave"); };
+  const handleConfirmDisband = () => { void leaveOrDisband("room:disband"); };
 
   if (isJoining) {
     return (
@@ -141,13 +140,14 @@ export function Lobby() {
     );
   }
 
-  if (error && !room) {
+  if (error) {
     return (
       <div className="min-h-screen">
         <Navbar />
         <main className="mx-auto max-w-md px-4 py-6 sm:px-6 sm:py-10">
           <Card>
             <p className="text-sm text-red-400">{error}</p>
+            <Button className="mt-4" onClick={() => setAttempt((n) => n + 1)}>ลองใหม่</Button>
             <Button className="mt-4 w-full" onClick={() => navigate("/home")}>
               กลับไปที่คลังเกม
             </Button>

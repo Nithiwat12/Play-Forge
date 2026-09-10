@@ -43,6 +43,10 @@ export abstract class BaseGame<
     this.players.delete(userId);
   }
 
+  reconnectPlayer(userId: string): void {
+    if (!this.players.has(userId)) throw new Error("คุณไม่ได้อยู่ในเกมนี้");
+  }
+
   getPlayers(): GamePlayer[] {
     return Array.from(this.players.values());
   }

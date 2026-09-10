@@ -58,19 +58,19 @@ export const ScoreboardService = {
 async function buildScoreboard(roomId: string, settings: RoomSettings | null): Promise<Scoreboard> {
   const numberOfRounds = settings?.numberOfRounds ?? null;
 
-  const sessions = await prisma.gameSession.findMany({
+  const [sessions, allPlayers] = await Promise.all([prisma.gameSession.findMany({
     where: { roomId, status: "COMPLETED" },
     include: { history: true },
     orderBy: { startedAt: "asc" },
-  });
+  }),
 
   // Look up every player who has ever sat in this room (not just current
   // ones - a player who left partway through the match still needs their
   // username for rounds they scored points in earlier).
-  const allPlayers = await prisma.roomPlayer.findMany({
+  prisma.roomPlayer.findMany({
     where: { roomId },
-    include: { user: true },
-  });
+    select: { userId: true, user: { select: { username: true } } },
+  })]);
   const usernameByUserId = new Map(allPlayers.map((p) => [p.userId, p.user.username]));
 
   const rounds: RoundScoreEntry[] = sessions.map((session, index) => {

@@ -118,6 +118,11 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
 
+  reconnectPlayer(userId: string): void {
+    super.reconnectPlayer(userId);
+    if (this.disconnected.delete(userId)) this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+  }
+
   handleAction(userId: string, actionType: string, payload: unknown): void {
     if (!this.players.has(userId)) {
       throw new GameActionError("คุณไม่ได้อยู่ในเกมนี้");
