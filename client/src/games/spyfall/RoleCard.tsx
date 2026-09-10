@@ -1,6 +1,7 @@
+import { memo } from "react";
 import type { SpyfallPrivateState } from "./types";
 
-export function RoleCard({ privateState }: { privateState: SpyfallPrivateState }) {
+function RoleCardImpl({ privateState }: { privateState: SpyfallPrivateState }) {
   if (privateState.isSpy) {
     return (
       <div className="rounded-xl border border-red-800 bg-red-950/60 p-5 text-center">
@@ -24,3 +25,13 @@ export function RoleCard({ privateState }: { privateState: SpyfallPrivateState }
     </div>
   );
 }
+
+// The server sends a brand-new privateState object on every broadcast
+// (even ones that don't concern this player's own role), so the default
+// reference-equality memo would never skip a render here - compare the
+// three fields that actually matter instead.
+export const RoleCard = memo(RoleCardImpl, (prev, next) => {
+  const a = prev.privateState;
+  const b = next.privateState;
+  return a.isSpy === b.isSpy && a.location === b.location && a.role === b.role;
+});

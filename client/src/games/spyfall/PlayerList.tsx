@@ -1,4 +1,6 @@
+import { memo } from "react";
 import type { SpyfallPublicPlayer } from "./types";
+import { playersSignature } from "../../utils/memoCompare";
 
 interface PlayerListProps {
   players: SpyfallPublicPlayer[];
@@ -6,7 +8,7 @@ interface PlayerListProps {
   onAsk?: (userId: string) => void;
 }
 
-export function PlayerList({ players, selfUserId, onAsk }: PlayerListProps) {
+function PlayerListImpl({ players, selfUserId, onAsk }: PlayerListProps) {
   return (
     <ul className="flex flex-col gap-2">
       {players.map((player) => (
@@ -41,3 +43,17 @@ export function PlayerList({ players, selfUserId, onAsk }: PlayerListProps) {
     </ul>
   );
 }
+
+// `players` is a fresh array reference on every single game:state
+// broadcast (a new question, a vote, the timer resolving, ...) even when
+// this particular list of names/status hasn't changed, so plain memo
+// would never help - compare the actual player values instead. `onAsk`
+// still needs a stable identity from the parent (see SpyfallGame.tsx's
+// useCallback) for this to skip renders during unrelated updates.
+export const PlayerList = memo(PlayerListImpl, (prev, next) => {
+  return (
+    prev.selfUserId === next.selfUserId &&
+    prev.onAsk === next.onAsk &&
+    playersSignature(prev.players) === playersSignature(next.players)
+  );
+});

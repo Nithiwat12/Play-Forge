@@ -11,6 +11,12 @@ export function createSocketServer(httpServer: HttpServer): AppServer {
       origin: env.clientOrigin,
       credentials: true,
     },
+    // More tolerant than the library defaults (20s/25s) for flaky mobile
+    // connections - a slow ping response shouldn't be treated as a dead
+    // connection and force a full reconnect + room rejoin cycle when the
+    // socket is actually still fine.
+    pingTimeout: 30000,
+    pingInterval: 25000,
   });
 
   io.use(socketAuthMiddleware);

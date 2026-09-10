@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import cookieParser from "cookie-parser";
 import { env } from "./config/env";
 import routes from "./routes";
@@ -8,6 +9,9 @@ import { notFoundMiddleware, errorMiddleware } from "./middleware/errorMiddlewar
 export function createApp() {
   const app = express();
 
+  // Gzips REST responses (history/scoreboard payloads especially) - cheap
+  // CPU cost, meaningfully smaller transfers on slow mobile connections.
+  app.use(compression());
   app.use(
     cors({
       origin: env.clientOrigin,

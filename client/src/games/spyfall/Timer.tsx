@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 function formatSeconds(totalSeconds: number): string {
   const clamped = Math.max(0, totalSeconds);
@@ -7,7 +7,10 @@ function formatSeconds(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-export function Timer({ endsAt }: { endsAt: number | null }) {
+// Memoized so a chat message or vote elsewhere on the page doesn't force
+// this to re-render too - it only cares about `endsAt`, a plain number,
+// so the default shallow-prop comparison memo does is already enough.
+export const Timer = memo(function Timer({ endsAt }: { endsAt: number | null }) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -29,4 +32,4 @@ export function Timer({ endsAt }: { endsAt: number | null }) {
       {formatSeconds(remaining)}
     </div>
   );
-}
+});

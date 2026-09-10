@@ -1,6 +1,7 @@
+import { memo } from "react";
 import type { RoomPlayer } from "../../types";
 
-export function PlayerListItem({ player, isSelf }: { player: RoomPlayer; isSelf: boolean }) {
+function PlayerListItemImpl({ player, isSelf }: { player: RoomPlayer; isSelf: boolean }) {
   return (
     <li className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3">
       <div className="flex items-center gap-2">
@@ -26,3 +27,19 @@ export function PlayerListItem({ player, isSelf }: { player: RoomPlayer; isSelf:
     </li>
   );
 }
+
+// The Lobby re-renders every player's row on every room:update broadcast
+// (e.g. one person toggling ready), and RoomService always sends a fresh
+// player array - compare by value so the other rows skip re-rendering.
+export const PlayerListItem = memo(PlayerListItemImpl, (prev, next) => {
+  const a = prev.player;
+  const b = next.player;
+  return (
+    prev.isSelf === next.isSelf &&
+    a.userId === b.userId &&
+    a.username === b.username &&
+    a.connected === b.connected &&
+    a.isHost === b.isHost &&
+    a.isReady === b.isReady
+  );
+});

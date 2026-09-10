@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "../../components/common/Card";
 import { Button } from "../../components/common/Button";
@@ -62,15 +62,18 @@ export function SpyfallGame({
     ? Math.min(scoreboard.roundsPlayed + (isFinished ? 0 : 1), scoreboard.numberOfRounds ?? Infinity)
     : 1;
 
-  async function runAction(actionType: string, payload: unknown, onSuccess?: () => void) {
-    setActionError(null);
-    const result = await onAction(actionType, payload);
-    if (!result.ok) {
-      setActionError(result.error ?? "การกระทำล้มเหลว");
-    } else {
-      onSuccess?.();
-    }
-  }
+  const runAction = useCallback(
+    async (actionType: string, payload: unknown, onSuccess?: () => void) => {
+      setActionError(null);
+      const result = await onAction(actionType, payload);
+      if (!result.ok) {
+        setActionError(result.error ?? "การกระทำล้มเหลว");
+      } else {
+        onSuccess?.();
+      }
+    },
+    [onAction]
+  );
 
   async function handleAskSubmit() {
     if (!targetUserId || !questionText.trim()) return;
@@ -88,11 +91,20 @@ export function SpyfallGame({
     await runAction(SPYFALL_ACTIONS.CALL_VOTE, {});
   }
 
-  async function handleVote(voteTargetUserId: string) {
-    await runAction(SPYFALL_ACTIONS.VOTE, { targetUserId: voteTargetUserId }, () =>
-      setMyVoteTargetId(voteTargetUserId)
-    );
-  }
+  // Stable identity (via useCallback) so the memoized PlayerList/Voting
+  // components below can actually skip re-rendering on unrelated updates
+  // (a new chat message, the timer ticking, etc.) instead of treating
+  // this as "changed" on every single render.
+  const handleAsk = useCallback((userId: string) => setTargetUserId(userId), []);
+
+  const handleVote = useCallback(
+    async (voteTargetUserId: string) => {
+      await runAction(SPYFALL_ACTIONS.VOTE, { targetUserId: voteTargetUserId }, () =>
+        setMyVoteTargetId(voteTargetUserId)
+      );
+    },
+    [runAction]
+  );
 
   async function handleGuess(correct: boolean) {
     await runAction(SPYFALL_ACTIONS.GUESS, { correct });
@@ -370,7 +382,7 @@ export function SpyfallGame({
             <PlayerList
               players={publicState.players}
               selfUserId={selfUserId}
-              onAsk={!isFinished && !isVoting ? (userId) => setTargetUserId(userId) : undefined}
+              onAsk={!isFinished && !isVoting ? handleAsk : undefined}
             />
           </div>
         </Card>

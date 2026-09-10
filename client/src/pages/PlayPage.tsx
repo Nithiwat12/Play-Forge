@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../components/common/Navbar";
 import { Spinner } from "../components/common/Spinner";
@@ -104,15 +104,24 @@ export function PlayPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
 
-  async function handleAction(actionType: string, payload: unknown) {
-    const response = await emitWithAck("game:action", { roomId: room?.id, actionType, payload });
-    return response.ok ? { ok: true } : { ok: false, error: response.error };
-  }
+  // Stable identities (via useCallback, keyed on the room id rather than
+  // the whole room object which is replaced on every room:update) so the
+  // game component below doesn't treat these as "new" props on every
+  // unrelated re-render - see SpyfallGame.tsx's own useCallback usage for
+  // why that matters for its memoized children.
+  const roomId = room?.id;
+  const handleAction = useCallback(
+    async (actionType: string, payload: unknown) => {
+      const response = await emitWithAck("game:action", { roomId, actionType, payload });
+      return response.ok ? { ok: true } : { ok: false, error: response.error };
+    },
+    [roomId]
+  );
 
-  async function handleReplay() {
-    const response = await emitWithAck("game:start", { roomId: room?.id });
+  const handleReplay = useCallback(async () => {
+    const response = await emitWithAck("game:start", { roomId });
     return response.ok ? { ok: true } : { ok: false, error: response.error };
-  }
+  }, [roomId]);
 
   function handleConfirmLeave() {
     if (room) {
