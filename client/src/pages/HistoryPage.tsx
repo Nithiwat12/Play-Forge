@@ -11,6 +11,7 @@ export function HistoryPage() {
   const navigate = useNavigate();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeRooms, setActiveRooms] = useState<Room[]>([]);
+  const [leftRooms, setLeftRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,10 +19,12 @@ export function HistoryPage() {
     Promise.all([
       api.get<{ history: HistoryEntry[] }>("/users/me/history"),
       api.get<{ rooms: Room[] }>("/users/me/active-rooms"),
+      api.get<{ rooms: Room[] }>("/users/me/left-rooms"),
     ])
-      .then(([historyRes, activeRes]) => {
+      .then(([historyRes, activeRes, leftRes]) => {
         setHistory(historyRes.data.history);
         setActiveRooms(activeRes.data.rooms);
+        setLeftRooms(leftRes.data.rooms);
       })
       .catch((err) => setError(extractErrorMessage(err, "โหลดประวัติเกมไม่สำเร็จ")))
       .finally(() => setIsLoading(false));
@@ -71,13 +74,45 @@ export function HistoryPage() {
           </div>
         )}
 
-        {!isLoading && !error && history.length === 0 && activeRooms.length === 0 && (
+        {!isLoading && !error && leftRooms.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-400">
+              ห้องที่คุณออกมาแล้ว
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              ห้องเหล่านี้ยังไม่ถูกยุบ ถ้ายังอยู่ในล็อบบี้ (ยังไม่เริ่มเกม) กดเพื่อกลับเข้าไปได้
+            </p>
+            <div className="mt-3 flex flex-col gap-3">
+              {leftRooms.map((room) => (
+                <Card
+                  key={room.id}
+                  className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="font-medium text-white">
+                      {room.game.name} - {room.roomName}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      รหัสห้อง {room.roomCode} ·{" "}
+                      {room.status === "WAITING" ? "รอในล็อบบี้" : "กำลังเล่นอยู่"}
+                    </p>
+                  </div>
+                  <Button variant="secondary" onClick={() => handleRejoin(room)}>
+                    เข้าห้องอีกครั้ง
+                  </Button>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isLoading && !error && history.length === 0 && activeRooms.length === 0 && leftRooms.length === 0 && (
           <p className="mt-8 text-sm text-slate-500">ยังไม่เคยเล่นเกมเลย</p>
         )}
 
         {!isLoading && !error && history.length > 0 && (
           <div className="mt-8">
-            {activeRooms.length > 0 && (
+            {(activeRooms.length > 0 || leftRooms.length > 0) && (
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
                 เกมที่จบแล้ว
               </h2>

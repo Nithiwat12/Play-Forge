@@ -67,4 +67,26 @@ export const UserService = {
 
     return Promise.all(rooms.map((r) => RoomService.getPublicRoomById(r.id)));
   },
+
+  // Rooms this user left (leftAt set on their RoomPlayer row) that still
+  // exist - i.e. the room was never disbanded and never ran down to zero
+  // players (both of which mark it FINISHED). Shown on the History page
+  // separately from finished game sessions, since leaving a room isn't the
+  // same thing as a game ending - the room (and its other players) may
+  // still be around.
+  async getLeftRoomsForUser(userId: string): Promise<PublicRoom[]> {
+    const rooms = await prisma.room.findMany({
+      where: {
+        status: { in: ["WAITING", "PLAYING"] },
+        players: {
+          some: { userId, leftAt: { not: null } },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+      select: { id: true },
+    });
+
+    return Promise.all(rooms.map((r) => RoomService.getPublicRoomById(r.id)));
+  },
 };

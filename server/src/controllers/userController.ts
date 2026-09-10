@@ -15,4 +15,10 @@ export const userController = {
     const rooms = await UserService.getActiveRoomsForUser(req.user.id);
     res.status(200).json({ rooms });
   }),
+
+  getMyLeftRooms: asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) throw ApiError.unauthorized();
+    const rooms = await UserService.getLeftRoomsForUser(req.user.id);
+    res.status(200).json({ rooms });
+  }),
 };
