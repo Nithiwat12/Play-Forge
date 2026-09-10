@@ -8,7 +8,10 @@ services:
     # --include=dev is required because NODE_ENV=production (set below) makes
     # plain `npm install` skip devDependencies - but typescript/@types/prisma
     # are devDependencies and the TS build needs them.
-    buildCommand: npm install --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
+    # `npm run seed` re-runs the idempotent upsert in prisma/seed.ts on every
+    # deploy, so editing a game's Thai name/description there always reaches
+    # the live database without a manual step.
+    buildCommand: npm install --include=dev && npx prisma generate && npx prisma migrate deploy && npm run seed && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
