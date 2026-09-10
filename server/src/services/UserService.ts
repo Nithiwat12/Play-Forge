@@ -1,5 +1,6 @@
 import { prisma } from "../config/prisma";
 import { RoomService } from "./RoomService";
+import { ApiError } from "../utils/ApiError";
 import type { PublicRoom } from "../types";
 
 export interface HistoryEntry {
@@ -40,17 +41,47 @@ export const UserService = {
       take: 100,
     });
 
-    return sessions.map((session) => ({
-      gameSessionId: session.id,
-      gameName: session.game.name,
-      gameSlug: session.game.slug,
-      roomName: session.room.roomName,
-      roomCode: session.room.roomCode,
-      status: session.status,
-      startedAt: session.startedAt.toISOString(),
-      finishedAt: session.finishedAt ? session.finishedAt.toISOString() : null,
-      resultData: session.history[0]?.resultData ?? null,
-    }));
+    return sessions
+      // A session the user has deleted from their own history is hidden
+      // here only - the underlying row is kept intact for every other
+      // player and for the room's scoreboard/round-count math.
+      .filter((session) => !session.history[0]?.hiddenForUserIds.includes(userId))
+      .map((session) => ({
+        gameSessionId: session.id,
+        gameName: session.game.name,
+        gameSlug: session.game.slug,
+        roomName: session.room.roomName,
+        roomCode: session.room.roomCode,
+        status: session.status,
+        startedAt: session.startedAt.toISOString(),
+        finishedAt: session.finishedAt ? session.finishedAt.toISOString() : null,
+        resultData: session.history[0]?.resultData ?? null,
+      }));
+  },
+
+  // "Deletes" one history entry from just this user's own view. The
+  // GameSession/GameHistory rows stay in place (other players may still
+  // see them, and the room's scoreboard reads them for as long as the
+  // match is ongoing) - only this user's id is recorded as having hidden
+  // it, and getHistoryForUser filters accordingly.
+  async deleteHistoryEntryForUser(userId: string, gameSessionId: string): Promise<void> {
+    const session = await prisma.gameSession.findUnique({
+      where: { id: gameSessionId },
+      include: { history: true, room: { include: { players: true } } },
+    });
+    if (!session) throw ApiError.notFound("ไม่พบประวัติเกมนี้");
+
+    const wasPlayer = session.room.players.some((p) => p.userId === userId);
+    if (!wasPlayer) throw ApiError.forbidden("คุณไม่ได้เล่นเกมนี้");
+
+    const historyRow = session.history[0];
+    if (!historyRow) return; // Nothing to hide - no result was ever recorded.
+    if (historyRow.hiddenForUserIds.includes(userId)) return; // Already hidden.
+
+    await prisma.gameHistory.update({
+      where: { id: historyRow.id },
+      data: { hiddenForUserIds: { push: userId } },
+    });
   },
 
   // Rooms this user is still an active seat in (not WAITING/FINISHED with

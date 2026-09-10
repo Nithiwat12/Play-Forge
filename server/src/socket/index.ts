@@ -4,6 +4,7 @@ import { env } from "../config/env";
 import { socketAuthMiddleware, type AppServer } from "./socketAuth";
 import { registerRoomSocket } from "./roomSocket";
 import { registerGameSocket } from "./gameSocket";
+import { startRoomCleanupSweep } from "../services/RoomCleanupService";
 
 export function createSocketServer(httpServer: HttpServer): AppServer {
   const io: AppServer = new Server(httpServer, {
@@ -25,6 +26,10 @@ export function createSocketServer(httpServer: HttpServer): AppServer {
     registerRoomSocket(io, socket);
     registerGameSocket(io, socket);
   });
+
+  // Idle-lobby auto-disband: rooms left sitting on the WAITING screen with
+  // no activity for 10+ minutes are automatically closed out.
+  startRoomCleanupSweep(io);
 
   return io;
 }

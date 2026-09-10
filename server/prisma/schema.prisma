@@ -126,6 +126,14 @@ model GameHistory {
   resultData    Json
   createdAt     DateTime @default(now())
 
+  // Per-user "delete from my history" - a GameSession/GameHistory row is
+  // shared by every player in the room (and still needed for the room's
+  // scoreboard/round-count math), so deleting the row outright would break
+  // history for everyone else and corrupt in-progress match scoring.
+  // Instead, "delete" just adds the requesting user's id here and
+  // getHistoryForUser filters it out of their own list.
+  hiddenForUserIds String[] @default([])
+
   gameSession GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Cascade)
 
   @@index([gameSessionId])

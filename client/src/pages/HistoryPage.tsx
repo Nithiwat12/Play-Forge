@@ -14,6 +14,7 @@ export function HistoryPage() {
   const [leftRooms, setLeftRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -32,6 +33,19 @@ export function HistoryPage() {
 
   function handleRejoin(room: Room) {
     navigate(room.status === "WAITING" ? `/lobby/${room.roomCode}` : `/play/${room.roomCode}`);
+  }
+
+  async function handleDeleteHistory(gameSessionId: string) {
+    if (!window.confirm("ลบประวัติเกมรอบนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
+    setDeletingId(gameSessionId);
+    try {
+      await api.delete(`/users/me/history/${gameSessionId}`);
+      setHistory((prev) => prev.filter((entry) => entry.gameSessionId !== gameSessionId));
+    } catch (err) {
+      setError(extractErrorMessage(err, "ลบประวัติเกมไม่สำเร็จ"));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -133,19 +147,34 @@ export function HistoryPage() {
                         ห้อง {entry.roomCode} - {new Date(entry.startedAt).toLocaleString("th-TH")}
                       </p>
                     </div>
-                    <span
-                      className={`rounded px-2 py-1 text-xs font-medium uppercase ${
-                        entry.status === "COMPLETED"
-                          ? "bg-emerald-950 text-emerald-400"
-                          : "bg-slate-800 text-slate-400"
-                      }`}
-                    >
-                      {entry.status === "COMPLETED"
-                        ? "จบแล้ว"
-                        : entry.status === "ABORTED"
-                          ? "ยกเลิก"
-                          : entry.status}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded px-2 py-1 text-xs font-medium uppercase ${
+                          entry.status === "COMPLETED"
+                            ? "bg-emerald-950 text-emerald-400"
+                            : "bg-slate-800 text-slate-400"
+                        }`}
+                      >
+                        {entry.status === "COMPLETED"
+                          ? "จบแล้ว"
+                          : entry.status === "ABORTED"
+                            ? "ยกเลิก"
+                            : entry.status}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="ลบประวัตินี้"
+                        title="ลบประวัตินี้"
+                        disabled={deletingId === entry.gameSessionId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteHistory(entry.gameSessionId);
+                        }}
+                        className="rounded px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-950 hover:text-red-400 disabled:opacity-50"
+                      >
+                        {deletingId === entry.gameSessionId ? "..." : "ลบ"}
+                      </button>
+                    </div>
                   </div>
                 </Card>
               ))}

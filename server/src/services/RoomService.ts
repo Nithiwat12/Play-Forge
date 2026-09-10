@@ -324,12 +324,39 @@ export const RoomService = {
       throw ApiError.forbidden("เฉพาะโฮสต์เท่านั้นที่ยุบห้องได้");
     }
 
-    await prisma.roomPlayer.updateMany({
-      where: { roomId, leftAt: null },
-      data: { leftAt: new Date() },
+    await closeRoomRecords(roomId);
+  },
+
+  // System-initiated equivalent of disbandRoom, with no host check - used
+  // by the idle-lobby cleanup sweep to close out rooms nobody ever started
+  // (or came back to) within the time limit.
+  async forceCloseRoom(roomId: string): Promise<void> {
+    await closeRoomRecords(roomId);
+  },
+
+  // Rooms still sitting in WAITING (lobby, game never started - or back in
+  // the lobby after a round finished) whose last update was more than
+  // `idleMs` ago. PLAYING rooms are never included here - a long
+  // discussion round is not "idle", so this never risks cutting a live
+  // game short.
+  async findStaleWaitingRoomIds(idleMs: number): Promise<string[]> {
+    const rooms = await prisma.room.findMany({
+      where: {
+        status: "WAITING",
+        updatedAt: { lt: new Date(Date.now() - idleMs) },
+      },
+      select: { id: true },
     });
-    await prisma.room.update({ where: { id: roomId }, data: { status: "FINISHED" } });
+    return rooms.map((r) => r.id);
   },
 
   toPublicRoom,
 };
+
+async function closeRoomRecords(roomId: string): Promise<void> {
+  await prisma.roomPlayer.updateMany({
+    where: { roomId, leftAt: null },
+    data: { leftAt: new Date() },
+  });
+  await prisma.room.update({ where: { id: roomId }, data: { status: "FINISHED" } });
+}

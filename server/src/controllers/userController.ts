@@ -21,4 +21,10 @@ export const userController = {
     const rooms = await UserService.getLeftRoomsForUser(req.user.id);
     res.status(200).json({ rooms });
   }),
+
+  deleteMyHistoryEntry: asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) throw ApiError.unauthorized();
+    await UserService.deleteHistoryEntryForUser(req.user.id, req.params.gameSessionId);
+    res.status(200).json({ ok: true });
+  }),
 };
