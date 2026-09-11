@@ -1,4 +1,5 @@
 import { GameActionError } from "../core/types";
+import { SPYFALL_LOCATIONS } from "./locations";
 import type {
   SpyfallGuessPayload,
   SpyfallQuestionPayload,
@@ -70,22 +71,34 @@ export function validateVotePayload(payload: unknown): SpyfallVotePayload {
   return { targetUserId };
 }
 
+const VALID_LOCATION_NAMES = new Set(SPYFALL_LOCATIONS.map((l) => l.name));
+
 export function validateGuessPayload(payload: unknown): SpyfallGuessPayload {
   if (typeof payload !== "object" || payload === null) {
     throw new GameActionError("ข้อมูลการตอบไม่ถูกต้อง");
   }
-  const { correct } = payload as Record<string, unknown>;
-  if (typeof correct !== "boolean") {
-    throw new GameActionError("ต้องระบุว่าตอบถูกหรือตอบผิด");
+  const { location } = payload as Record<string, unknown>;
+  if (!isNonEmptyString(location)) {
+    throw new GameActionError("กรุณาเลือกสถานที่ที่จะตอบ");
   }
-  return { correct };
+  const trimmed = location.trim();
+  if (!VALID_LOCATION_NAMES.has(trimmed)) {
+    throw new GameActionError("สถานที่ที่เลือกไม่ถูกต้อง");
+  }
+  return { location: trimmed };
 }
 
 // --- Vote call threshold -------------------------------------------------
 
-/** A simple majority (more than half) of current players must call for a vote. */
+/**
+ * Every current player - the Spy included - must call for a vote before
+ * the group actually moves into the voting phase. (The Spy has its own
+ * separate shortcut that skips this requirement entirely - see
+ * SpyfallGame.handleCallVote - so this unanimous count only ever gates
+ * the non-Spy players waiting on each other.)
+ */
 export function requiredVoteCallers(playerCount: number): number {
-  return Math.floor(playerCount / 2) + 1;
+  return playerCount;
 }
 
 // --- Vote resolution -----------------------------------------------------

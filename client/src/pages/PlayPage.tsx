@@ -5,6 +5,8 @@ import { Spinner } from "../components/common/Spinner";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { ConfirmModal } from "../components/common/ConfirmModal";
+import { ContinueRoundPrompt } from "../components/game/ContinueRoundPrompt";
+import type { ContinuePollInfo, ContinueResolutionInfo } from "../components/game/ContinueRoundPrompt";
 import { subscribeToRoom } from "../services/roomConnection";
 import { connectSocket, emitWithAck } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
@@ -28,12 +30,25 @@ export function PlayPage() {
 
   const [attempt, setAttempt] = useState(0);
 
+  // Game-agnostic "play another round?" flow - see ContinueRoundPrompt.
+  // Only one of these is ever meaningfully non-null at a time (a fresh
+  // poll always clears any previous resolution/error, and a resolution
+  // always clears the poll).
+  const [continuePoll, setContinuePoll] = useState<ContinuePollInfo | null>(null);
+  const [continueResolution, setContinueResolution] = useState<ContinueResolutionInfo | null>(null);
+  const [continueError, setContinueError] = useState<string | null>(null);
+  const [isSubmittingContinueVote, setIsSubmittingContinueVote] = useState(false);
+  const [isSkippingContinueDelay, setIsSkippingContinueDelay] = useState(false);
+
   useEffect(() => {
     if (!roomCode) { setError("ไม่พบรหัสห้อง"); setIsLoading(false); return; }
     setIsLoading(true);
     setError(null);
     clearRoom();
     clear();
+    setContinuePoll(null);
+    setContinueResolution(null);
+    setContinueError(null);
     const socket = connectSocket();
     let cancelled = false;
 
@@ -68,10 +83,67 @@ export function PlayPage() {
       navigate("/home", { replace: true });
     }
 
+    // Game-agnostic "play another round?" flow (see ContinueRoundPrompt) -
+    // these events fire for any game, never just Spyfall, so they're
+    // handled here rather than inside a specific game component.
+    function handleContinuePoll(payload: { roomId: string; deadline: number; totalPlayers: number }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      setContinueResolution(null);
+      setContinueError(null);
+      setContinuePoll({
+        deadline: payload.deadline,
+        totalPlayers: payload.totalPlayers,
+        votesFor: 0,
+        votesAgainst: 0,
+        myVote: null,
+      });
+    }
+
+    function handleContinueUpdate(payload: {
+      roomId: string;
+      votesFor: number;
+      votesAgainst: number;
+      totalPlayers: number;
+    }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      setContinuePoll((prev) =>
+        prev
+          ? { ...prev, votesFor: payload.votesFor, votesAgainst: payload.votesAgainst, totalPlayers: payload.totalPlayers }
+          : prev
+      );
+    }
+
+    function handleContinueResolved(payload: {
+      roomId: string;
+      willContinue: boolean;
+      nextRoundAt: number | null;
+    }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      setContinuePoll(null);
+      if (payload.willContinue && payload.nextRoundAt != null) {
+        setContinueResolution({ nextRoundAt: payload.nextRoundAt });
+      } else {
+        // Majority (or a tie, or nobody answering in time) said not to
+        // continue - everyone heads back to the lobby right away.
+        setContinueResolution(null);
+        navigate(`/lobby/${roomCode}`, { replace: true });
+      }
+    }
+
+    function handleContinueFailed(payload: { roomId: string; error: string }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      setContinueResolution(null);
+      setContinueError(payload.error);
+    }
+
     socket.on("game:state", handleGameState);
     socket.on("game:end", handleGameEnd);
     socket.on("room:update", handleRoomUpdate);
     socket.on("room:disbanded", handleDisbanded);
+    socket.on("game:continuePoll", handleContinuePoll);
+    socket.on("game:continueUpdate", handleContinueUpdate);
+    socket.on("game:continueResolved", handleContinueResolved);
+    socket.on("game:continueFailed", handleContinueFailed);
     const stopJoining = subscribeToRoom(socket, roomCode,
       (response) => {
         setError(null);
@@ -103,6 +175,10 @@ export function PlayPage() {
       socket.off("game:end", handleGameEnd);
       socket.off("room:update", handleRoomUpdate);
       socket.off("room:disbanded", handleDisbanded);
+      socket.off("game:continuePoll", handleContinuePoll);
+      socket.off("game:continueUpdate", handleContinueUpdate);
+      socket.off("game:continueResolved", handleContinueResolved);
+      socket.off("game:continueFailed", handleContinueFailed);
       clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,6 +224,35 @@ export function PlayPage() {
   }
   const handleConfirmLeave = () => { void leaveOrDisband("room:pause"); };
   const handleConfirmDisband = () => { void leaveOrDisband("room:disband"); };
+
+  async function handleContinueVote(wantsContinue: boolean) {
+    setContinuePoll((prev) => (prev ? { ...prev, myVote: wantsContinue } : prev));
+    setIsSubmittingContinueVote(true);
+    try {
+      const response = await emitWithAck("game:continueVote", { roomId, wantsContinue });
+      if (!response.ok) {
+        setContinuePoll((prev) => (prev ? { ...prev, myVote: null } : prev));
+        setContinueError(response.error);
+      }
+    } catch (err) {
+      setContinuePoll((prev) => (prev ? { ...prev, myVote: null } : prev));
+      setContinueError(extractErrorMessage(err));
+    } finally {
+      setIsSubmittingContinueVote(false);
+    }
+  }
+
+  async function handleSkipContinueDelay() {
+    setIsSkippingContinueDelay(true);
+    try {
+      const response = await emitWithAck("game:skipContinueDelay", { roomId });
+      if (!response.ok) setContinueError(response.error);
+    } catch (err) {
+      setContinueError(extractErrorMessage(err));
+    } finally {
+      setIsSkippingContinueDelay(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -227,6 +332,16 @@ export function PlayPage() {
           onCancel={() => setShowDisbandConfirm(false)}
         />
       )}
+      <ContinueRoundPrompt
+        poll={continuePoll}
+        resolution={continueResolution}
+        error={continueError}
+        isSubmittingVote={isSubmittingContinueVote}
+        isSkipping={isSkippingContinueDelay}
+        onVote={(wantsContinue) => void handleContinueVote(wantsContinue)}
+        onSkip={() => void handleSkipContinueDelay()}
+        onDismissError={() => setContinueError(null)}
+      />
     </div>
   );
 }

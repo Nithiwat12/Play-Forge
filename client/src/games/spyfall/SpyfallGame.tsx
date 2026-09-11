@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "../../components/common/Card";
 import { Button } from "../../components/common/Button";
@@ -7,6 +7,9 @@ import { Timer } from "./Timer";
 import { RoleCard } from "./RoleCard";
 import { PlayerList } from "./PlayerList";
 import { Voting } from "./Voting";
+import { LocationChecklist } from "./LocationChecklist";
+import { GuessModal } from "./GuessModal";
+import { VoteRequestModal } from "./VoteRequestModal";
 import { SPYFALL_ACTIONS } from "./types";
 import type { SpyfallPublicState, SpyfallPrivateState } from "./types";
 import type { Room, Scoreboard } from "../../types";
@@ -27,7 +30,6 @@ export function SpyfallGame({
   privateState,
   selfUserId,
   onAction,
-  onReplay,
   scoreboard,
 }: SpyfallGameProps) {
   const navigate = useNavigate();
@@ -36,13 +38,50 @@ export function SpyfallGame({
   const [answerText, setAnswerText] = useState("");
   const [myVoteTargetId, setMyVoteTargetId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [isReplaying, setIsReplaying] = useState(false);
+
+  // The Spy's own scratchpad - which locations they've personally crossed
+  // off while thinking. Purely local: never sent to the server, reset
+  // whenever a fresh round's timer starts (new timerEndsAt).
+  const [eliminated, setEliminated] = useState<Set<string>>(new Set());
+  const toggleEliminated = useCallback((name: string) => {
+    setEliminated((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  // The Spy's final-answer popup - opens itself the moment voting starts
+  // (either from the group's majority call or the Spy's own unilateral
+  // stop), per "จะเด้งไปหน้าตอบเลย" - no extra click needed to see it.
+  const [isGuessModalOpen, setIsGuessModalOpen] = useState(false);
+  const [guessError, setGuessError] = useState<string | null>(null);
+  const [isGuessing, setIsGuessing] = useState(false);
+
+  // "Someone else wants to open voting" popup - shown to anyone who
+  // hasn't called for a vote themselves yet, re-armed only once the
+  // caller count moves past whatever count they last dismissed at.
+  const [voteRequestDismissedAt, setVoteRequestDismissedAt] = useState(0);
+  const [isCallingVote, setIsCallingVote] = useState(false);
 
   const isFinished = publicState.phase === "FINISHED";
   const isVoting = publicState.phase === "VOTING";
   const hasCalledVote = Boolean(selfUserId && publicState.voteCallers.includes(selfUserId));
-  const isHost = room.hostId === selfUserId;
   const matchComplete = scoreboard?.matchComplete ?? false;
+
+  useEffect(() => {
+    setEliminated(new Set());
+  }, [publicState.timerEndsAt]);
+
+  useEffect(() => {
+    if (isVoting && privateState.isSpy) {
+      setIsGuessModalOpen(true);
+      setGuessError(null);
+    } else {
+      setIsGuessModalOpen(false);
+    }
+  }, [isVoting, privateState.isSpy]);
 
   const otherPlayers = useMemo(
     () => publicState.players.filter((p) => p.userId !== selfUserId),
@@ -61,6 +100,17 @@ export function SpyfallGame({
   const currentRoundNumber = scoreboard
     ? Math.min(scoreboard.roundsPlayed + (isFinished ? 0 : 1), scoreboard.numberOfRounds ?? Infinity)
     : 1;
+
+  const voteCallerNames = useMemo(
+    () => publicState.voteCallers.map((id) => usernameByUserId.get(id) ?? "ไม่ทราบชื่อ"),
+    [publicState.voteCallers, usernameByUserId]
+  );
+  const showVoteRequestModal =
+    !isFinished &&
+    !isVoting &&
+    !hasCalledVote &&
+    publicState.voteCallers.length > 0 &&
+    publicState.voteCallers.length > voteRequestDismissedAt;
 
   const runAction = useCallback(
     async (actionType: string, payload: unknown, onSuccess?: () => void) => {
@@ -88,7 +138,23 @@ export function SpyfallGame({
   }
 
   async function handleCallVote() {
-    await runAction(SPYFALL_ACTIONS.CALL_VOTE, {});
+    setIsCallingVote(true);
+    try {
+      await runAction(SPYFALL_ACTIONS.CALL_VOTE, {});
+    } finally {
+      setIsCallingVote(false);
+    }
+  }
+
+  // Used by the "someone else wants to vote" popup's agree button - same
+  // underlying action as the inline button, just also dismisses the popup.
+  async function handleAgreeToVote() {
+    setVoteRequestDismissedAt(publicState.voteCallers.length);
+    await handleCallVote();
+  }
+
+  function handleDismissVoteRequest() {
+    setVoteRequestDismissedAt(publicState.voteCallers.length);
   }
 
   // Stable identity (via useCallback) so the memoized PlayerList/Voting
@@ -106,20 +172,18 @@ export function SpyfallGame({
     [runAction]
   );
 
-  async function handleGuess(correct: boolean) {
-    await runAction(SPYFALL_ACTIONS.GUESS, { correct });
-  }
-
-  async function handleReplay() {
-    setActionError(null);
-    setIsReplaying(true);
+  async function handleGuess(location: string) {
+    setGuessError(null);
+    setIsGuessing(true);
     try {
-      const result = await onReplay();
+      const result = await onAction(SPYFALL_ACTIONS.GUESS, { location });
       if (!result.ok) {
-        setActionError(result.error ?? "เริ่มเกมใหม่ไม่สำเร็จ");
+        setGuessError(result.error ?? "ตอบไม่สำเร็จ กรุณาลองใหม่");
       }
+      // On success the round concludes and isVoting flips to false, which
+      // closes the modal itself via the effect above - nothing to do here.
     } finally {
-      setIsReplaying(false);
+      setIsGuessing(false);
     }
   }
 
@@ -140,6 +204,14 @@ export function SpyfallGame({
         </Card>
 
         <RoleCard privateState={privateState} />
+
+        {!isFinished && privateState.isSpy && privateState.locationOptions && (
+          <LocationChecklist
+            locations={privateState.locationOptions}
+            eliminated={eliminated}
+            onToggle={toggleEliminated}
+          />
+        )}
 
         {isFinished && publicState.result && (
           <Card className="border-brand-700">
@@ -182,12 +254,10 @@ export function SpyfallGame({
                 <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
                   🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง
                 </p>
-              ) : isHost ? (
-                <Button onClick={handleReplay} isLoading={isReplaying}>
-                  เล่นอีกครั้ง
-                </Button>
               ) : (
-                <p className="flex items-center text-xs text-slate-500">รอโฮสต์กดเล่นอีกครั้ง...</p>
+                <p className="flex items-center text-xs text-slate-500">
+                  รอผลโหวตว่าจะเล่นต่อหรือกลับล็อบบี้...
+                </p>
               )}
               <Button variant="secondary" onClick={() => navigate(`/lobby/${room.roomCode}`)}>
                 กลับไปที่ล็อบบี้
@@ -282,18 +352,19 @@ export function SpyfallGame({
             </div>
 
             <h2 className="mt-5 text-sm font-semibold text-slate-300">
-              {privateState.isSpy ? "หยุดเกมเพื่อทาย" : "ขอเปิดโหวต"}
+              {privateState.isSpy ? "หยุดเกมเพื่อตอบ" : "ขอเปิดโหวต"}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
               {privateState.isSpy
-                ? "ถ้าคิดว่าทายสถานที่ได้แล้ว กดปุ่มนี้เพื่อหยุดการพูดคุยและเข้าสู่โหมดโหวต แล้วบอกคำทายของคุณออกมาดัง ๆ ให้เพื่อนฟัง"
-                : "ถ้าคิดว่ารู้แล้วว่าใครคือสปาย กดปุ่มนี้เพื่อขอเปิดโหวต ต้องได้เสียงข้างมากก่อนถึงจะเข้าสู่โหมดโหวตได้"}
+                ? "ถ้าพร้อมจะตอบแล้ว กดปุ่มนี้เพื่อหยุดเกมทันที (ไม่ต้องรอใคร) แล้วจะมีป๊อปอัปให้เลือกสถานที่ตอบเลย"
+                : "ถ้าคิดว่ารู้แล้วว่าใครคือสปาย กดปุ่มนี้เพื่อขอเปิดโหวต ต้องให้ทุกคนในห้องกดขอโหวตครบก่อนถึงจะเข้าสู่โหมดโหวตได้"}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Button
                 variant={privateState.isSpy ? "danger" : "secondary"}
                 onClick={handleCallVote}
                 disabled={hasCalledVote}
+                isLoading={isCallingVote}
               >
                 {hasCalledVote
                   ? "รอเพื่อนคนอื่น..."
@@ -301,9 +372,11 @@ export function SpyfallGame({
                     ? "หยุดเกม (ขอตอบ)"
                     : "ขอเปิดโหวต"}
               </Button>
-              <span className="text-xs text-slate-500">
-                {publicState.voteCallers.length} / {publicState.requiredVoteCallers} คนขอโหวตแล้ว
-              </span>
+              {!privateState.isSpy && (
+                <span className="text-xs text-slate-500">
+                  {publicState.voteCallers.length} / {publicState.requiredVoteCallers} คนขอโหวตแล้ว
+                </span>
+              )}
             </div>
 
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
@@ -320,16 +393,13 @@ export function SpyfallGame({
             {privateState.isSpy ? (
               <div className="mt-4 rounded-xl border border-red-800 bg-red-950/50 p-4">
                 <p className="text-sm text-red-200">
-                  บอกคำทายสถานที่ของคุณออกมาดัง ๆ ให้เพื่อนฟัง แล้วกดปุ่มด้านล่างตามจริงว่าทายถูกหรือผิด
+                  เลือกสถานที่ที่คุณคิดว่าใช่จากป๊อปอัป - ตอบได้แค่ครั้งเดียวเท่านั้น
                 </p>
-                <div className="mt-3 flex flex-wrap gap-3">
-                  <Button variant="primary" onClick={() => handleGuess(true)}>
-                    ทายถูก
+                {!isGuessModalOpen && (
+                  <Button className="mt-3" variant="danger" onClick={() => setIsGuessModalOpen(true)}>
+                    เปิดหน้าตอบอีกครั้ง
                   </Button>
-                  <Button variant="danger" onClick={() => handleGuess(false)}>
-                    ทายผิด
-                  </Button>
-                </div>
+                )}
               </div>
             ) : (
               <div className="mt-4">
@@ -387,6 +457,29 @@ export function SpyfallGame({
           </div>
         </Card>
       </div>
+
+      {isGuessModalOpen && privateState.isSpy && privateState.locationOptions && (
+        <GuessModal
+          locations={privateState.locationOptions}
+          eliminated={eliminated}
+          isSubmitting={isGuessing}
+          error={guessError}
+          onSubmit={handleGuess}
+          onClose={() => setIsGuessModalOpen(false)}
+        />
+      )}
+
+      {showVoteRequestModal && (
+        <VoteRequestModal
+          callerNames={voteCallerNames}
+          callerCount={publicState.voteCallers.length}
+          requiredCount={publicState.requiredVoteCallers}
+          isSpy={privateState.isSpy}
+          isSubmitting={isCallingVote}
+          onAgree={handleAgreeToVote}
+          onDismiss={handleDismissVoteRequest}
+        />
+      )}
     </div>
   );
 }

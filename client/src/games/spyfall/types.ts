@@ -39,6 +39,7 @@ export interface SpyfallResult {
   location: string;
   voteTally?: SpyfallVoteTally[];
   votes?: SpyfallRevealedVote[];
+  spyGuessedLocation?: string;
   spyGuessCorrect?: boolean;
   scores: Record<string, number>;
 }
@@ -59,6 +60,9 @@ export interface SpyfallPrivateState {
   isSpy: boolean;
   location: string | null;
   role: string | null;
+  // Full location deck, sent only to the Spy - used for the elimination
+  // checklist and the final-answer popup. Null for everyone else.
+  locationOptions: string[] | null;
 }
 
 export const SPYFALL_ACTIONS = {

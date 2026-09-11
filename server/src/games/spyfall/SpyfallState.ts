@@ -39,9 +39,10 @@ export interface SpyfallResult {
   location: string;
   voteTally?: SpyfallVoteTally[];
   votes?: SpyfallRevealedVote[];
-  // The Spy's own honest self-report of whether their spoken guess (made
-  // out loud to the other players, in person) was correct - the app never
-  // sees or validates the actual guessed location text.
+  // The location the Spy actually picked from the popup at guess time (set
+  // only when the round ended via a guess, not a vote/timeout), and whether
+  // it matched - the server checks this itself now, no more honor system.
+  spyGuessedLocation?: string;
   spyGuessCorrect?: boolean;
   // Points earned this round, userId -> points. Spy escaping (not guessing)
   // = 1pt, Spy guessing the location correctly = 3pt, each non-Spy player
@@ -58,7 +59,9 @@ export interface SpyfallPublicState {
   log: SpyfallLogEntry[];
   result: SpyfallResult | null;
   // Call-to-vote progress: how many players have asked to open the voting
-  // screen, and how many are required (a simple majority) before it opens.
+  // screen, and how many are required (everyone - unanimous) before it
+  // opens. (The Spy has a separate unilateral bypass that skips this
+  // requirement entirely - see SpyfallGame.handleCallVote.)
   voteCallers: string[];
   requiredVoteCallers: number;
 }
@@ -68,6 +71,11 @@ export interface SpyfallPrivateState {
   isSpy: boolean;
   location: string | null;
   role: string | null;
+  // The full location deck, sent only to the Spy - the reference list they
+  // use to cross off options during discussion and to pick their final
+  // answer from. Always null for non-Spy players (they already know the
+  // real location via `location` above).
+  locationOptions: string[] | null;
 }
 
 // Action type strings used as the `actionType` field of the generic
@@ -96,8 +104,9 @@ export interface SpyfallVotePayload {
   targetUserId: string;
 }
 
-// The Spy self-reports whether their spoken guess was correct - see
-// SpyfallResult.spyGuessCorrect above for why there's no location text here.
+// The Spy's final answer - one location name picked from the popup built
+// off SpyfallPrivateState.locationOptions. The server checks it against
+// the real location itself (see SpyfallGame.handleGuess).
 export interface SpyfallGuessPayload {
-  correct: boolean;
+  location: string;
 }

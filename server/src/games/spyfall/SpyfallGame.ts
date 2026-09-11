@@ -145,7 +145,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
         this.handleVote(userId, validateVotePayload(payload).targetUserId);
         break;
       case SPYFALL_ACTIONS.GUESS:
-        this.handleGuess(userId, validateGuessPayload(payload).correct);
+        this.handleGuess(userId, validateGuessPayload(payload).location);
         break;
       default:
         throw new GameActionError(`ไม่รู้จักการกระทำนี้: ${actionType}`);
@@ -186,10 +186,13 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     });
   }
 
-  // Any player (the Spy included - this is how the Spy "stops the game to
-  // answer") can call for a vote. Once a simple majority of the current
-  // players have called for it, the room moves into the dedicated voting
-  // screen - see getPublicState().voteCallers/requiredVoteCallers.
+  // Any player can call for a vote - once EVERY current player has called
+  // for it (unanimous, see requiredVoteCallers), the room moves into the
+  // dedicated voting screen (see getPublicState().voteCallers/
+  // requiredVoteCallers). The Spy calling this same action is different:
+  // it's their own unilateral "stop the game, I want to answer now" - no
+  // group agreement needed, it opens voting immediately just for them to
+  // guess, regardless of how many others have (or haven't) also called.
   private handleCallVote(userId: string): void {
     if (this.phase !== "IN_PROGRESS") {
       throw new GameActionError("ตอนนี้ไม่ได้อยู่ในช่วงพูดคุย เปิดโหวตไม่ได้");
@@ -197,14 +200,32 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (this.voteCallers.has(userId)) return;
 
     this.voteCallers.add(userId);
-    const required = requiredVoteCallers(this.players.size);
 
+    if (userId === this.spyUserId) {
+      this.openVoting("สปายขอหยุดเกมเพื่อตอบ!");
+      return;
+    }
+
+    const required = requiredVoteCallers(this.players.size);
     if (this.voteCallers.size >= required) {
-      this.phase = "VOTING";
-      this.appendSystemLog("เปิดโหมดโหวตแล้ว! เลือกผู้เล่นที่คุณคิดว่าเป็นสปาย");
+      this.openVoting("เปิดโหมดโหวตแล้ว! เลือกผู้เล่นที่คุณคิดว่าเป็นสปาย");
     } else {
       this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
     }
+  }
+
+  // Freezes the discussion clock the moment voting opens, whichever way it
+  // opened (everyone calling for a vote, or the Spy's own unilateral stop) -
+  // nobody should get timed out mid-vote or mid-answer, since the round now
+  // resolves from a vote or a guess, not the clock.
+  private openVoting(systemMessage: string): void {
+    this.phase = "VOTING";
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.timerEndsAt = null;
+    this.appendSystemLog(systemMessage); // also emits STATE_CHANGED
   }
 
   private handleVote(voterId: string, targetUserId: string): void {
@@ -226,10 +247,10 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     }
   }
 
-  // The Spy's honest self-report of whether their spoken guess (made out
-  // loud to the group, in person) was correct - the app never sees the
-  // actual guessed location text, only this yes/no.
-  private handleGuess(userId: string, correct: boolean): void {
+  // The Spy picks their final answer from the real location list - the
+  // server itself checks it against the actual location, so there's no
+  // more honor-system self-report of "correct/wrong".
+  private handleGuess(userId: string, guessedLocation: string): void {
     if (userId !== this.spyUserId) {
       throw new GameActionError("เฉพาะสปายเท่านั้นที่ตอบได้");
     }
@@ -237,14 +258,16 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       throw new GameActionError("ต้องเปิดโหมดโหวตก่อนถึงจะตอบได้ - กด \"หยุดเกมเพื่อตอบ\" ก่อน");
     }
 
+    const correct = guessedLocation === this.location!.name;
     this.conclude({
       winner: correct ? "SPY" : "NON_SPY",
       reason: correct
-        ? "สปายทายสถานที่ถูกต้อง!"
-        : "สปายทายสถานที่ผิด และถูกเปิดเผยตัวตน",
+        ? `สปายทายสถานที่ถูกต้อง! คำตอบคือ "${guessedLocation}"`
+        : `สปายทายผิด! ทายว่า "${guessedLocation}" แต่สถานที่จริงคือ "${this.location!.name}"`,
       spyUserId: this.spyUserId!,
       spyUsername: this.players.get(this.spyUserId!)?.username ?? "ไม่ทราบชื่อ",
       location: this.location!.name,
+      spyGuessedLocation: guessedLocation,
       spyGuessCorrect: correct,
     });
   }
@@ -375,15 +398,24 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
 
   getPrivateState(userId: string): SpyfallPrivateState {
     if (!this.location || !this.spyUserId) {
-      return { isSpy: false, location: null, role: null };
+      return { isSpy: false, location: null, role: null, locationOptions: null };
     }
     if (userId === this.spyUserId) {
-      return { isSpy: true, location: null, role: null };
+      // The Spy gets the full location list - same reference sheet the
+      // physical game hands the spy - to cross options off as they listen,
+      // and to pick their final answer from at guess time.
+      return {
+        isSpy: true,
+        location: null,
+        role: null,
+        locationOptions: SPYFALL_LOCATIONS.map((l) => l.name),
+      };
     }
     return {
       isSpy: false,
       location: this.location.name,
       role: this.roleAssignment.get(userId) ?? null,
+      locationOptions: null,
     };
   }
 

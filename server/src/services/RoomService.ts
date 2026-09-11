@@ -86,6 +86,32 @@ async function findById(roomId: string): Promise<RoomWithRelations> {
   return room;
 }
 
+// The room-state half of "can a round start right now" - status, minimum
+// headcount, and the configured round limit if any. Shared by both
+// assertCanStart (which adds its own host-only/everyone-ready checks on
+// top) and assertRoomCanStartRound (which doesn't need those, since the
+// continue-vote system's majority "yes" is its own consent mechanism).
+async function assertRoundCanStart(room: RoomWithRelations): Promise<void> {
+  if (room.status !== "WAITING") {
+    throw ApiError.conflict("เกมเริ่มไปแล้วหรือจบไปแล้ว");
+  }
+  if (room.players.length < room.game.minPlayers) {
+    throw ApiError.badRequest(
+      `${room.game.name} ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คนถึงจะเริ่มได้`
+    );
+  }
+
+  const settings = (room.settings as RoomSettings | null) ?? null;
+  if (settings?.numberOfRounds) {
+    const roundsPlayed = await prisma.gameSession.count({
+      where: { roomId: room.id, status: "COMPLETED" },
+    });
+    if (roundsPlayed >= settings.numberOfRounds) {
+      throw ApiError.conflict("เล่นครบจำนวนรอบที่กำหนดไว้แล้ว");
+    }
+  }
+}
+
 /**
  * Core Room System. REST endpoints identify rooms by their human-facing
  * roomCode (what a player types in); the Socket.IO layer identifies rooms
@@ -282,28 +308,21 @@ export const RoomService = {
     if (room.hostId !== userId) {
       throw ApiError.forbidden("เฉพาะโฮสต์เท่านั้นที่เริ่มเกมได้");
     }
-    if (room.status !== "WAITING") {
-      throw ApiError.conflict("เกมเริ่มไปแล้วหรือจบไปแล้ว");
-    }
-    if (room.players.length < room.game.minPlayers) {
-      throw ApiError.badRequest(
-        `${room.game.name} ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คนถึงจะเริ่มได้`
-      );
-    }
     if (room.players.some((p) => !p.isReady)) {
       throw ApiError.badRequest("ผู้เล่นยังไม่พร้อมครบทุกคน");
     }
 
-    const settings = (room.settings as RoomSettings | null) ?? null;
-    if (settings?.numberOfRounds) {
-      const roundsPlayed = await prisma.gameSession.count({
-        where: { roomId, status: "COMPLETED" },
-      });
-      if (roundsPlayed >= settings.numberOfRounds) {
-        throw ApiError.conflict("เล่นครบจำนวนรอบที่กำหนดไว้แล้ว");
-      }
-    }
+    await assertRoundCanStart(room);
+    return room;
+  },
 
+  // Same room-state checks as assertCanStart (round limit, min players,
+  // room status) but without the host-only or everyone-ready requirements -
+  // used by the continue-vote system's auto-start, where the vote itself
+  // (a majority saying "yes") already stands in for both of those.
+  async assertRoomCanStartRound(roomId: string): Promise<RoomWithRelations> {
+    const room = await findById(roomId);
+    await assertRoundCanStart(room);
     return room;
   },
 
