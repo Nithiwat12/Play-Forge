@@ -5,6 +5,7 @@ import { Button } from "../../components/common/Button";
 import { Input } from "../../components/common/Input";
 import { PlayerBoard } from "./PlayerBoard";
 import { HintPanel } from "./HintPanel";
+import { GuessJudgeModal } from "./GuessJudgeModal";
 import { Stopwatch } from "./Stopwatch";
 import { NotesPad } from "./NotesPad";
 import { WordHeadTimeTable } from "./WordHeadTimeTable";
@@ -39,6 +40,8 @@ export function WordHeadGame({
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const [isGivingHint, setIsGivingHint] = useState(false);
+  const [isMarkingCorrect, setIsMarkingCorrect] = useState(false);
+  const [isMarkingWrong, setIsMarkingWrong] = useState(false);
 
   const isFinished = publicState.phase === "FINISHED";
   const isMyTurn = publicState.phase === "TURN" && publicState.currentTurnUserId === selfUserId;
@@ -144,6 +147,24 @@ export function WordHeadGame({
     }
   }
 
+  async function handleMarkCorrect() {
+    setIsMarkingCorrect(true);
+    try {
+      await runAction(WORDHEAD_ACTIONS.MARK_CORRECT, {});
+    } finally {
+      setIsMarkingCorrect(false);
+    }
+  }
+
+  async function handleMarkWrong() {
+    setIsMarkingWrong(true);
+    try {
+      await runAction(WORDHEAD_ACTIONS.MARK_WRONG, {});
+    } finally {
+      setIsMarkingWrong(false);
+    }
+  }
+
   function handleSaveNotes(notes: string) {
     void onAction(WORDHEAD_ACTIONS.UPDATE_NOTES, { notes });
   }
@@ -205,7 +226,10 @@ export function WordHeadGame({
         {!isFinished && publicState.phase === "TURN" && isMyTurn && (
           <Card className="border-amber-700">
             <h2 className="text-sm font-semibold text-slate-300">ตาของคุณ - ทายคำของตัวเอง</h2>
-            <p className="mt-1 text-xs text-slate-500">คนอื่นในห้องเห็นคำของคุณและกำลังช่วยใบ้อยู่ - ฟังคำใบ้แล้วพิมพ์คำตอบ</p>
+            <p className="mt-1 text-xs text-slate-500">
+              คนอื่นในห้องเห็นคำของคุณและกำลังช่วยใบ้อยู่ - ฟังคำใบ้แล้วตอบได้เลย จะพูดออกเสียงหรือพิมพ์ก็ได้
+              พิมพ์แล้วรอคนอื่นกดยืนยันว่าถูกไหม
+            </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Input
                 value={guessText}
@@ -237,10 +261,29 @@ export function WordHeadGame({
               hintCooldownEndsAt={privateState.hintCooldownEndsAt}
               isSubmitting={isGivingHint}
               onGiveHint={handleGiveHint}
+              isMarkingCorrect={isMarkingCorrect}
+              isMarkingWrong={isMarkingWrong}
+              onMarkCorrect={handleMarkCorrect}
+              onMarkWrong={handleMarkWrong}
             />
             {actionError && <p className="text-sm text-red-400">{actionError}</p>}
           </>
         )}
+
+        {!isFinished &&
+          publicState.phase === "TURN" &&
+          !isMyTurn &&
+          currentTurnUsername &&
+          publicState.pendingGuess && (
+            <GuessJudgeModal
+              guesserUsername={currentTurnUsername}
+              guessText={publicState.pendingGuess.text}
+              isMarkingCorrect={isMarkingCorrect}
+              isMarkingWrong={isMarkingWrong}
+              onMarkCorrect={handleMarkCorrect}
+              onMarkWrong={handleMarkWrong}
+            />
+          )}
 
         <Card>
           <h2 className="text-sm font-semibold text-slate-300">ประวัติการเล่น</h2>
@@ -258,14 +301,9 @@ export function WordHeadGame({
               }
               if (entry.type === "guess") {
                 return (
-                  <div
-                    key={entry.id}
-                    className={`rounded-lg px-3 py-2 text-sm ${
-                      entry.guessCorrect ? "bg-emerald-950/60 text-emerald-200" : "bg-slate-900/70 text-slate-300"
-                    }`}
-                  >
+                  <div key={entry.id} className="rounded-lg bg-slate-900/70 px-3 py-2 text-sm text-slate-300">
                     <span className="font-medium text-slate-200">{entry.username}</span> ทายว่า "{entry.text}"
-                    {entry.guessCorrect ? " - ถูกต้อง! 🎉" : " - ยังไม่ถูก"}
+                    <span className="italic text-slate-500"> - รอเพื่อนกดยืนยัน</span>
                   </div>
                 );
               }

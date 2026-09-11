@@ -32,9 +32,23 @@ export interface WordHeadLogEntry {
   // Hint text (may be null - in-person players can just say it out loud),
   // the guessed word, or a system message body.
   text: string | null;
-  // Present only on a "guess" entry.
+  // Unused for "guess" entries now that correctness is always decided by
+  // another player pressing ตอบถูก/ตอบผิด (see PendingGuess below) rather
+  // than an automatic text match - kept optional so old entries/clients
+  // that still set it don't break.
   guessCorrect?: boolean;
   timestamp: number;
+}
+
+// A typed guess waiting for someone other than the guesser to judge it -
+// see WordHeadGame's MARK_CORRECT/MARK_WRONG handlers. Cleared as soon as
+// it's judged (or a new typed guess replaces it, or the turn moves on).
+// Everyone in the room can see this (there's nothing secret about a guess
+// the up player already typed themselves) so the client can pop up a
+// judging prompt for every other player the moment it appears.
+export interface WordHeadPendingGuess {
+  text: string;
+  submittedAt: number;
 }
 
 export interface WordHeadResult {
@@ -63,6 +77,11 @@ export interface WordHeadPublicState {
   log: WordHeadLogEntry[];
   wordCategory: string | null;
   result: WordHeadResult | null;
+  // A typed guess currently awaiting another player's ถูก/ผิด judgment -
+  // null when nobody's up player has an unjudged typed guess out. The
+  // client uses this to pop up a judging prompt for everyone except the
+  // guesser themselves.
+  pendingGuess: WordHeadPendingGuess | null;
 }
 
 // Only ever holds THIS browser's own view.
@@ -83,6 +102,15 @@ export const WORDHEAD_ACTIONS = {
   GUESS: "wordhead:guess",
   PASS_TURN: "wordhead:passTurn",
   UPDATE_NOTES: "wordhead:updateNotes",
+  // Pressed by anyone EXCEPT the current up player to judge whether the up
+  // player's answer (typed as a pending guess, or just said out loud) is
+  // right - this is now the ONLY way a turn is scored as correct, there's
+  // no more automatic text-matching. See WordHeadGame's handleMarkCorrect.
+  MARK_CORRECT: "wordhead:markCorrect",
+  // Same as above but for "not right yet" - doesn't end the turn or cost
+  // anything, the stopwatch just keeps running and the up player keeps
+  // guessing.
+  MARK_WRONG: "wordhead:markWrong",
 } as const;
 
 export interface HintPayload {

@@ -6,6 +6,7 @@ import {
   WORDHEAD_ACTIONS,
   type WordHeadConfig,
   type WordHeadLogEntry,
+  type WordHeadPendingGuess,
   type WordHeadPhase,
   type WordHeadPublicState,
   type WordHeadPrivateState,
@@ -19,7 +20,6 @@ import {
   validateHintPayload,
   validateGuessPayload,
   validateUpdateNotesPayload,
-  isCorrectGuess,
 } from "./WordHeadRules";
 
 export type { WordHeadConfig };
@@ -57,6 +57,10 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   private currentTurnUserId: string | null = null;
   private currentWord: string | null = null;
   private turnStartedAt: number | null = null;
+  // Set by a typed GUESS, cleared by MARK_CORRECT/MARK_WRONG (or a new
+  // typed guess replacing it, or the turn moving on) - see WordHeadState's
+  // note on why this is safe to show to the whole room.
+  private pendingGuess: WordHeadPendingGuess | null = null;
 
   private hasGone: Set<string> = new Set();
   private guessedCorrectly: Set<string> = new Set();
@@ -139,6 +143,12 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       case WORDHEAD_ACTIONS.GUESS:
         this.handleGuess(userId, validateGuessPayload(payload).guessText);
         break;
+      case WORDHEAD_ACTIONS.MARK_CORRECT:
+        this.handleMarkCorrect(userId);
+        break;
+      case WORDHEAD_ACTIONS.MARK_WRONG:
+        this.handleMarkWrong(userId);
+        break;
       case WORDHEAD_ACTIONS.PASS_TURN:
         this.handlePassTurn(userId);
         break;
@@ -177,6 +187,12 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     });
   }
 
+  // Logs the typed guess and puts it up for another player to judge -
+  // typing no longer auto-resolves correctness by matching text, since
+  // exact string matching can't tell a synonym or a typo from a real miss.
+  // See handleMarkCorrect/handleMarkWrong for how it actually gets
+  // resolved, and MARK_CORRECT's fallback for players who just say their
+  // guess out loud instead of typing it here.
   private handleGuess(userId: string, guessText: string): void {
     if (this.phase !== "TURN" || userId !== this.currentTurnUserId) {
       throw new GameActionError("ยังไม่ถึงตาคุณ");
@@ -186,28 +202,64 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     }
 
     const guesser = this.players.get(userId)!;
-    const correct = isCorrectGuess(guessText, this.currentWord);
+    const text = guessText.slice(0, WORDHEAD_MAX_TEXT_LENGTH);
 
+    this.pendingGuess = { text, submittedAt: Date.now() };
     this.appendLog({
       id: randomUUID(),
       type: "guess",
       userId,
       username: guesser.username,
-      text: guessText.slice(0, WORDHEAD_MAX_TEXT_LENGTH),
-      guessCorrect: correct,
+      text,
       timestamp: Date.now(),
     });
+  }
 
-    if (correct) {
-      const word = this.currentWord;
-      const elapsedSeconds = this.finishTurn(userId, true);
-      this.appendSystemLog(
-        `${guesser.username} ทายถูกต้อง! คำคือ "${word}" (ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที)`
-      );
-      this.advanceTurn();
+  // Anyone except the up player can call this - either resolving a typed
+  // pendingGuess, or (if there isn't one) confirming an answer the up
+  // player just said out loud.
+  private handleMarkCorrect(judgeUserId: string): void {
+    if (this.phase !== "TURN" || !this.currentTurnUserId) {
+      throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
     }
-    // A wrong guess doesn't end the turn or cost anything beyond the time
-    // already spent thinking of it - the stopwatch just keeps running.
+    if (judgeUserId === this.currentTurnUserId) {
+      throw new GameActionError("คุณกดยืนยันคำตอบตัวเองไม่ได้");
+    }
+
+    const judge = this.players.get(judgeUserId)!;
+    const guesser = this.players.get(this.currentTurnUserId)!;
+    const word = this.currentWord;
+    const guessedText = this.pendingGuess?.text;
+    this.pendingGuess = null;
+
+    const elapsedSeconds = this.finishTurn(this.currentTurnUserId, true);
+    this.appendSystemLog(
+      `${judge.username} กดว่า ${guesser.username} ตอบถูก${guessedText ? ` ("${guessedText}")` : ""}! คำคือ "${word}" (ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที)`
+    );
+    this.advanceTurn();
+  }
+
+  // Doesn't end the turn or change anything about the score - the
+  // stopwatch just keeps running and the up player keeps guessing, exactly
+  // like the old auto-checked wrong guess did.
+  private handleMarkWrong(judgeUserId: string): void {
+    if (this.phase !== "TURN" || !this.currentTurnUserId) {
+      throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
+    }
+    if (judgeUserId === this.currentTurnUserId) {
+      throw new GameActionError("คุณกดยืนยันคำตอบตัวเองไม่ได้");
+    }
+
+    const judge = this.players.get(judgeUserId)!;
+    const guesser = this.players.get(this.currentTurnUserId)!;
+    const guessedText = this.pendingGuess?.text;
+    this.pendingGuess = null;
+
+    this.appendSystemLog(
+      guessedText
+        ? `${judge.username} บอกว่า "${guessedText}" ยังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
+        : `${judge.username} บอกว่ายังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
+    );
   }
 
   // Voluntary give-up: locks in however long they've spent so far as their
@@ -220,6 +272,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     }
     const passer = this.players.get(userId)!;
     const word = this.currentWord;
+    this.pendingGuess = null;
     const elapsedSeconds = this.finishTurn(userId, false);
     this.appendSystemLog(
       `${passer.username} ขอข้ามตา (คำคือ "${word}") - ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที`
@@ -271,6 +324,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     this.currentTurnUserId = userId;
     this.currentWord = this.nextWord();
     this.turnStartedAt = Date.now();
+    this.pendingGuess = null;
     this.phase = "TURN";
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
@@ -279,6 +333,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     this.currentTurnUserId = null;
     this.currentWord = null;
     this.turnStartedAt = null;
+    this.pendingGuess = null;
     this.phase = "FINISHED";
     this.finished = true;
 
@@ -339,6 +394,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       log: this.log,
       wordCategory: this.wordCategory,
       result: this.finished ? this.roundResult : null,
+      pendingGuess: this.pendingGuess,
     };
   }
 

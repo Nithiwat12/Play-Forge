@@ -23,8 +23,19 @@ export interface WordHeadLogEntry {
   userId: string | null;
   username: string | null;
   text: string | null;
+  // Unused for "guess" entries now - correctness is always decided by
+  // another player pressing ตอบถูก/ตอบผิด, announced via a "system" entry
+  // right after, not by tagging the guess entry itself.
   guessCorrect?: boolean;
   timestamp: number;
+}
+
+// A typed guess awaiting another player's ถูก/ผิด judgment - see
+// WORDHEAD_ACTIONS.MARK_CORRECT/MARK_WRONG. Visible to everyone (there's
+// nothing secret about a guess the up player already typed themselves).
+export interface WordHeadPendingGuess {
+  text: string;
+  submittedAt: number;
 }
 
 export interface WordHeadResult {
@@ -48,6 +59,7 @@ export interface WordHeadPublicState {
   log: WordHeadLogEntry[];
   wordCategory: string | null;
   result: WordHeadResult | null;
+  pendingGuess: WordHeadPendingGuess | null;
 }
 
 export interface WordHeadPrivateState {
@@ -61,4 +73,8 @@ export const WORDHEAD_ACTIONS = {
   GUESS: "wordhead:guess",
   PASS_TURN: "wordhead:passTurn",
   UPDATE_NOTES: "wordhead:updateNotes",
+  // Pressed by anyone except the up player to judge an answer - either a
+  // typed pendingGuess, or one just said out loud - as right or not yet.
+  MARK_CORRECT: "wordhead:markCorrect",
+  MARK_WRONG: "wordhead:markWrong",
 } as const;

@@ -9,6 +9,10 @@ interface HintPanelProps {
   hintCooldownEndsAt: number | null;
   isSubmitting: boolean;
   onGiveHint: (hintText: string | null) => void;
+  isMarkingCorrect: boolean;
+  isMarkingWrong: boolean;
+  onMarkCorrect: () => void;
+  onMarkWrong: () => void;
 }
 
 // Shown to everyone EXCEPT the current up player. The "ให้คำใบ้" button
@@ -16,7 +20,23 @@ interface HintPanelProps {
 // disables itself with a countdown while this viewer's own 10-second
 // cooldown is active; text is optional so an in-person group can just say
 // the hint out loud and tap the button purely to start their cooldown.
-export function HintPanel({ currentWord, currentTurnUsername, hintCooldownEndsAt, isSubmitting, onGiveHint }: HintPanelProps) {
+//
+// The ✅/❌ judging buttons below are always available too, no cooldown -
+// they're how the room decides whether the up player's answer (typed or
+// just said out loud) is right. A typed guess also pops up GuessJudgeModal
+// on top of everything so it can't be missed, but these buttons stay here
+// as the everyday way to confirm an answer said out loud.
+export function HintPanel({
+  currentWord,
+  currentTurnUsername,
+  hintCooldownEndsAt,
+  isSubmitting,
+  onGiveHint,
+  isMarkingCorrect,
+  isMarkingWrong,
+  onMarkCorrect,
+  onMarkWrong,
+}: HintPanelProps) {
   const [hintText, setHintText] = useState("");
   const [now, setNow] = useState(() => Date.now());
 
@@ -51,6 +71,30 @@ export function HintPanel({ currentWord, currentTurnUsername, hintCooldownEndsAt
         <Button onClick={handleSubmit} disabled={onCooldown} isLoading={isSubmitting}>
           {onCooldown ? `รอ ${cooldownSecondsLeft} วิ` : "ให้คำใบ้"}
         </Button>
+      </div>
+
+      <div className="mt-4 border-t border-slate-800 pt-3">
+        <p className="text-xs text-slate-500">{currentTurnUsername} ตอบถูกไหม? (ไม่ว่าจะพิมพ์หรือพูดออกเสียง)</p>
+        <div className="mt-2 flex gap-2">
+          <Button
+            variant="secondary"
+            className="flex-1 border border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50"
+            onClick={onMarkCorrect}
+            isLoading={isMarkingCorrect}
+            disabled={isMarkingWrong}
+          >
+            ✅ ตอบถูก
+          </Button>
+          <Button
+            variant="secondary"
+            className="flex-1"
+            onClick={onMarkWrong}
+            isLoading={isMarkingWrong}
+            disabled={isMarkingCorrect}
+          >
+            ❌ ยังไม่ถูก
+          </Button>
+        </div>
       </div>
     </Card>
   );
