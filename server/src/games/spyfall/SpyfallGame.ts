@@ -12,6 +12,7 @@ import {
   type SpyfallResult,
   type SpyfallRevealedVote,
   type SpyfallVoteCallPoll,
+  type SpyfallVoteTally,
 } from "./SpyfallState";
 import {
   SPYFALL_MIN_PLAYERS,
@@ -100,6 +101,21 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   // this is what getPublicState uses to decide whether to expose spyUserId
   // early, before the round actually concludes.
   private revealed = false;
+  // Why `revealed`/phase REVEALED is currently set - see SpyfallPublicState's
+  // revealedReason doc comment. Null outside REVEALED.
+  private revealedReason: "SURRENDER" | "VOTE_ESCAPED" | null = null;
+  // Stashed only while phase is REVEALED with revealedReason "VOTE_ESCAPED" -
+  // the vote tally/ballot and "how the Spy escaped" reason text the group's
+  // just-finished accusation vote already produced, so whichever way this
+  // bonus guess window ends (correct guess, wrong guess, or timing out) the
+  // final result can still carry the same vote info a normal resolveByVotes
+  // conclusion would have (see beginFinalGuessWindow/handleGuess/
+  // resolveRevealedTimeout). Null the rest of the time.
+  private pendingEscapeResult: {
+    reason: string;
+    tally: SpyfallVoteTally[];
+    votes: SpyfallRevealedVote[];
+  } | null = null;
   private result: SpyfallResult | null = null;
   private discussionSeconds: number = SPYFALL_TIMER_SECONDS;
   private timerEndsAt: number | null = null;
@@ -481,6 +497,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
 
     this.clearVotePoll();
     this.revealed = true;
+    this.revealedReason = "SURRENDER";
     this.phase = "REVEALED";
     this.beginTimer(SPYFALL_VOTING_SECONDS);
     const spyUsername = this.players.get(userId)?.username ?? "ไม่ทราบชื่อ";
@@ -491,20 +508,40 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
 
   // The Spy picks their final answer from the real location list - the
   // server itself checks it against the actual location, so there's no
-  // more honor-system self-report of "correct/wrong". Reachable from either
-  // VOTING (answering alongside the group's accusation vote) or REVEALED
-  // (answering alone, having already surrendered).
+  // more honor-system self-report of "correct/wrong". Only reachable during
+  // REVEALED - either the Spy voluntarily surrendered, or the group's own
+  // accusation vote already ran its course without catching them (see
+  // beginFinalGuessWindow) - never during an still-ongoing VOTING.
   private handleGuess(userId: string, guessedLocation: string): void {
     if (userId !== this.spyUserId) {
       throw new GameActionError("เฉพาะสปายเท่านั้นที่ตอบได้");
     }
-    if (this.phase !== "VOTING" && this.phase !== "REVEALED") {
+    // The group's accusation vote has to actually finish first - either
+    // everyone votes (see handleVote) or the voting clock runs out (see
+    // forceEndByTimer/resolveByVotes) - before the Spy gets to answer at
+    // all. Answering used to be allowed the whole time VOTING was open,
+    // which let the Spy race in and end the round before the group had
+    // really finished accusing anyone. Once the vote genuinely concludes
+    // without catching the Spy, phase moves to REVEALED with revealedReason
+    // "VOTE_ESCAPED" (see beginFinalGuessWindow) and this no longer blocks
+    // them - "REVEALED" alone (not "VOTING") is now the only phase this
+    // action ever succeeds from, whether that's a voluntary surrender or a
+    // post-vote bonus window.
+    if (this.phase !== "REVEALED") {
       throw new GameActionError(
-        "ต้องเปิดโหมดโหวต หรือกดยอมแพ้ขอทายก่อนถึงจะตอบได้"
+        this.phase === "VOTING"
+          ? "รอให้การโหวตหาสปายจบก่อนถึงจะตอบได้"
+          : "ต้องเปิดโหมดโหวต หรือกดยอมแพ้ขอทายก่อนถึงจะตอบได้"
       );
     }
 
     const correct = guessedLocation === this.location!.name;
+    // If this bonus chance came from the group's vote failing to catch the
+    // Spy (rather than a voluntary surrender), carry that vote's tally/
+    // ballot into whichever outcome this guess produces - a wrong guess
+    // here still needs to show who voted for whom, exactly like it would
+    // have if the vote itself had ended the round.
+    const escapeVoteInfo = this.revealedReason === "VOTE_ESCAPED" ? this.pendingEscapeResult : null;
     this.conclude({
       winner: correct ? "SPY" : "NON_SPY",
       reason: correct
@@ -516,6 +553,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       locationCategory: this.location!.category,
       spyGuessedLocation: guessedLocation,
       spyGuessCorrect: correct,
+      ...(escapeVoteInfo ? { voteTally: escapeVoteInfo.tally, votes: escapeVoteInfo.votes } : {}),
     });
   }
 
@@ -545,12 +583,32 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.resolveByVotes(this.phase === "VOTING" ? "หมดเวลาโหวต/ตอบ!" : "หมดเวลาแล้ว");
   }
 
-  // The Spy surrendered (outing themselves) but never actually submitted an
-  // answer within their window. Unlike a discussion/voting timeout - where
-  // an unaccused Spy quietly escapes by default - here everyone already
-  // knows who they are, so failing to answer in time is a straightforward
-  // loss for the Spy rather than an escape.
+  // The REVEALED answer window ran out. Two very different situations reach
+  // here, told apart by revealedReason:
+  //  - "SURRENDER": the Spy outed themselves voluntarily, so everyone
+  //    already knows who they are - failing to answer in time is a
+  //    straightforward loss rather than an escape.
+  //  - "VOTE_ESCAPED": the group's own accusation vote already ran its
+  //    course and failed to catch the Spy (see beginFinalGuessWindow) -
+  //    this window was purely a bonus chance at the 3pt guess, so not
+  //    taking it just falls back to the ordinary 1pt escape the vote itself
+  //    would already have produced, never a loss.
   private resolveRevealedTimeout(): void {
+    if (this.revealedReason === "VOTE_ESCAPED" && this.pendingEscapeResult) {
+      const { reason, tally, votes } = this.pendingEscapeResult;
+      this.conclude({
+        winner: "SPY",
+        reason: `${reason} (หมดเวลาทายโบนัสด้วย)`,
+        spyUserId: this.spyUserId!,
+        spyUsername: this.players.get(this.spyUserId!)?.username ?? "ไม่ทราบชื่อ",
+        location: this.location!.name,
+        locationCategory: this.location!.category,
+        voteTally: tally,
+        votes,
+      });
+      return;
+    }
+
     const spyUsername = this.players.get(this.spyUserId!)?.username ?? "ไม่ทราบชื่อ";
     this.conclude({
       winner: "NON_SPY",
@@ -560,6 +618,32 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       location: this.location!.name,
       locationCategory: this.location!.category,
     });
+  }
+
+  // Called once the group's accusation vote genuinely concludes (full
+  // turnout via handleVote, or the voting clock running out via
+  // forceEndByTimer) WITHOUT catching the Spy - instead of letting them
+  // escape automatically for the usual 1pt, they get one uncontested, timed
+  // window (same length as the voting clock) to try the location guess for
+  // the 3pt bonus instead, now that the vote can no longer be interrupted
+  // mid-count. Reuses the REVEALED phase (so the client's existing answer
+  // UI just works) but tagged "VOTE_ESCAPED" so a timeout here resolves as
+  // the ordinary escape via resolveRevealedTimeout - not a loss, unlike a
+  // failed voluntary surrender.
+  private beginFinalGuessWindow(
+    escapeReason: string,
+    tally: SpyfallVoteTally[],
+    votes: SpyfallRevealedVote[]
+  ): void {
+    this.clearVotePoll();
+    this.pendingEscapeResult = { reason: escapeReason, tally, votes };
+    this.revealed = true;
+    this.revealedReason = "VOTE_ESCAPED";
+    this.phase = "REVEALED";
+    this.beginTimer(SPYFALL_VOTING_SECONDS);
+    this.appendSystemLog(
+      `${escapeReason} แต่ยังไม่จบ! ให้โอกาสพิเศษสปายทายสถานที่อีกครั้งภายใน ${SPYFALL_VOTING_SECONDS / 60} นาที ทายถูกได้ 3 แต้มแทนที่จะได้แค่ 1 แต้ม`
+    ); // also emits STATE_CHANGED
   }
 
   private resolveByVotes(reasonPrefix: string): void {
@@ -598,27 +682,39 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       })
     );
 
+    // Caught red-handed - the round is genuinely over, no bonus chance to
+    // offer (there's nothing left to gamble for; guessing right or wrong
+    // changes nothing once the group already correctly named the Spy).
+    if (spyCaught) {
+      this.conclude({
+        winner: "NON_SPY",
+        reason: `${reasonPrefix} กลุ่มโหวตถูกคน! ${usernameByUserId.get(majority!)} คือสปาย`,
+        spyUserId: this.spyUserId!,
+        spyUsername: usernameByUserId.get(this.spyUserId!) ?? "ไม่ทราบชื่อ",
+        location: this.location!.name,
+        locationCategory: this.location!.category,
+        voteTally: tally,
+        votes,
+      });
+      return;
+    }
+
+    // The vote just finished (everyone voted, or the clock ran out) without
+    // catching the Spy - rather than settling for the default 1pt escape
+    // immediately, give the Spy one last uncontested shot at the 3pt guess
+    // (see beginFinalGuessWindow). If they don't take it - or take it and
+    // guess wrong - it still resolves as this same "escaped" outcome, just
+    // slightly later.
     let reason: string;
     if (this.votes.size === 0) {
       reason = `${reasonPrefix} ไม่มีใครโหวตเลย สปายจึงรอดตัวไป`;
     } else if (majority === null) {
       reason = `${reasonPrefix} โหวตเสมอกัน สปายจึงรอดตัวไป`;
-    } else if (spyCaught) {
-      reason = `${reasonPrefix} กลุ่มโหวตถูกคน! ${usernameByUserId.get(majority)} คือสปาย`;
     } else {
       reason = `${reasonPrefix} กลุ่มโหวตผิดคน ${usernameByUserId.get(majority)} ไม่ใช่สปาย`;
     }
 
-    this.conclude({
-      winner: spyCaught ? "NON_SPY" : "SPY",
-      reason,
-      spyUserId: this.spyUserId!,
-      spyUsername: usernameByUserId.get(this.spyUserId!) ?? "ไม่ทราบชื่อ",
-      location: this.location!.name,
-      locationCategory: this.location!.category,
-      voteTally: tally,
-      votes,
-    });
+    this.beginFinalGuessWindow(reason, tally, votes);
   }
 
   private conclude(result: Omit<SpyfallResult, "scores">): void {
@@ -689,6 +785,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       votePoll: this.publicVotePoll(),
       voteCallCooldownUntil: this.voteCallCooldownUntil,
       revealedSpyUserId: this.revealed ? this.spyUserId : null,
+      revealedReason: this.phase === "REVEALED" ? this.revealedReason : null,
       debateCandidateIds: this.debateCandidateIds ? Array.from(this.debateCandidateIds) : null,
       askerUserId: this.phase === "IN_PROGRESS" ? this.askerUserId : null,
       pendingQuestion: this.phase === "IN_PROGRESS" ? this.pendingQuestion : null,

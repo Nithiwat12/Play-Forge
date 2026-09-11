@@ -139,15 +139,20 @@ export function SpyfallGame({
     }
   }, [publicState.phase]);
 
+  // Only pops open once the Spy actually has an answer window - during
+  // ordinary VOTING there's nothing to open, since the Spy can't answer
+  // until the group's vote genuinely concludes (see handleGuess server
+  // side); that's REVEALED now regardless of whether it got there via a
+  // voluntary surrender or a just-finished vote that failed to catch them.
   useEffect(() => {
-    if ((isVoting || isRevealed) && privateState.isSpy) {
+    if (isRevealed && privateState.isSpy) {
       setIsGuessModalOpen(true);
       setGuessError(null);
       setIsLocationListOpen(false);
     } else {
       setIsGuessModalOpen(false);
     }
-  }, [isVoting, isRevealed, privateState.isSpy]);
+  }, [isRevealed, privateState.isSpy]);
 
   const usernameByUserId = useMemo(() => {
     const map = new Map<string, string>();
@@ -170,6 +175,12 @@ export function SpyfallGame({
   const revealedSpyUsername = publicState.revealedSpyUserId
     ? usernameByUserId.get(publicState.revealedSpyUserId) ?? "ไม่ทราบชื่อ"
     : null;
+  // REVEALED covers two different situations - see types.ts's
+  // revealedReason doc comment - and the banner/copy below reads very
+  // differently for each: a voluntary surrender (loses if time runs out)
+  // vs. a bonus chance after the group's own vote already failed to catch
+  // the Spy (never a loss, just falls back to the normal escape).
+  const isVoteEscapedBonus = isRevealed && publicState.revealedReason === "VOTE_ESCAPED";
 
   const showVoteCallPollModal = Boolean(publicState.votePoll) && !hasRespondedToPoll;
 
@@ -290,7 +301,7 @@ export function SpyfallGame({
       if (!result.ok) {
         setGuessError(result.error ?? "ตอบไม่สำเร็จ กรุณาลองใหม่");
       }
-      // On success the round concludes and isVoting flips to false, which
+      // On success the round concludes and isRevealed flips to false, which
       // closes the modal itself via the effect above - nothing to do here.
     } finally {
       setIsGuessing(false);
@@ -510,13 +521,23 @@ export function SpyfallGame({
         )}
 
         {isRevealed && (
-          <Card className="border-red-700">
-            <p className="text-xs font-semibold uppercase tracking-wide text-red-400">สปายเปิดเผยตัวแล้ว!</p>
+          <Card className={isVoteEscapedBonus ? "border-emerald-700" : "border-red-700"}>
+            <p
+              className={`text-xs font-semibold uppercase tracking-wide ${
+                isVoteEscapedBonus ? "text-emerald-400" : "text-red-400"
+              }`}
+            >
+              {isVoteEscapedBonus ? "โหวตจบแล้ว - สปายรอดจากการโหวต!" : "สปายเปิดเผยตัวแล้ว!"}
+            </p>
             <h2 className="mt-1 text-lg font-semibold text-white">
-              {revealedSpyUsername} คือสปาย - กำลังทายสถานที่อยู่
+              {isVoteEscapedBonus
+                ? `${revealedSpyUsername ?? "สปาย"} มีโอกาสพิเศษทายสถานที่รับ 3 แต้ม`
+                : `${revealedSpyUsername} คือสปาย - กำลังทายสถานที่อยู่`}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              มีเวลา 5 นาทีให้สปายทาย - ถ้าหมดเวลาก่อนสปายจะแพ้ทันที
+              {isVoteEscapedBonus
+                ? "มีเวลา 5 นาทีให้สปายทายเพื่อรับโบนัส - ถ้าไม่ทายหรือหมดเวลา สปายจะรอดตัวไปแบบธรรมดา (1 แต้ม) ไม่ถือว่าแพ้"
+                : "มีเวลา 5 นาทีให้สปายทาย - ถ้าหมดเวลาก่อนสปายจะแพ้ทันที"}
             </p>
             {privateState.isSpy && !isGuessModalOpen && (
               <Button className="mt-3" variant="danger" onClick={() => setIsGuessModalOpen(true)}>
@@ -540,13 +561,9 @@ export function SpyfallGame({
             {privateState.isSpy && (
               <div className="mt-4 rounded-xl border border-red-800 bg-red-950/50 p-4">
                 <p className="text-sm text-red-200">
-                  เลือกสถานที่ที่คุณคิดว่าใช่จากป๊อปอัป - ตอบได้แค่ครั้งเดียวเท่านั้น (โหวตด้านล่างได้ด้วยถ้าอยากกลบเกลื่อน)
+                  รอให้ทุกคนโหวตครบ หรือหมดเวลาโหวตก่อน - ถ้ากลุ่มจับคุณไม่ได้ คุณจะได้โอกาสพิเศษทายสถานที่ทีหลัง
+                  (โหวตด้านล่างได้ด้วยถ้าอยากกลบเกลื่อน)
                 </p>
-                {!isGuessModalOpen && (
-                  <Button className="mt-3" variant="danger" onClick={() => setIsGuessModalOpen(true)}>
-                    เปิดหน้าตอบอีกครั้ง
-                  </Button>
-                )}
               </div>
             )}
 

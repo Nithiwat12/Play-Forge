@@ -96,6 +96,18 @@ export interface SpyfallPublicState {
   // set it stays set (through REVEALED and into FINISHED) so the reveal
   // banner and result screen can both read it the same way.
   revealedSpyUserId: string | null;
+  // Why the round is currently REVEALED - "SURRENDER" if the Spy chose to
+  // give up voluntarily (see SPYFALL_ACTIONS.SURRENDER/handleSurrender), or
+  // "VOTE_ESCAPED" if the group's accusation vote just finished (everyone
+  // voted, or the voting clock ran out) WITHOUT catching the Spy, who now
+  // gets one uncontested last chance to guess the location for the 3pt
+  // bonus instead of automatically settling for the usual 1pt escape (see
+  // SpyfallGame.beginFinalGuessWindow). The two read very differently to
+  // the group - "SURRENDER" means the Spy is walking into with no vote ever
+  // happening, "VOTE_ESCAPED" means the group already had (and used) their
+  // shot - and a timeout is NOT a loss for the Spy in the VOTE_ESCAPED case,
+  // unlike SURRENDER (see resolveRevealedTimeout). Null outside REVEALED.
+  revealedReason: "SURRENDER" | "VOTE_ESCAPED" | null;
   // Set only during a tie-extension "debate round" - the userIds who tied
   // for the most votes last time, and the only legal accusation targets
   // until the round resolves one way or another. Null the rest of the

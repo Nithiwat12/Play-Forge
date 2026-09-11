@@ -10,6 +10,13 @@ export const SPYFALL_CATEGORIES = [
   { id: "food_shopping", label: "ร้านอาหาร/ร้านค้า" },
   { id: "leisure", label: "ท่องเที่ยว/บันเทิง" },
   { id: "residential", label: "ที่พักอาศัย" },
+  { id: "sports", label: "กีฬา/ออกกำลังกาย" },
+  { id: "nightlife", label: "ไนต์ไลฟ์/ผับบาร์" },
+  { id: "government", label: "ราชการ/กฎหมาย" },
+  { id: "workplace", label: "ออฟฟิศ/ธุรกิจ" },
+  { id: "nature", label: "ธรรมชาติ/กลางแจ้ง" },
+  { id: "vehicle", label: "ยานพาหนะ" },
+  { id: "unique", label: "สถานที่พิเศษ/แฟนตาซี" },
 ] as const;
 
 export function getCategoryLabel(id: string | null | undefined): string | null {

@@ -72,6 +72,12 @@ export interface SpyfallPublicState {
   voteCallCooldownUntil: number | null;
   // Set once the Spy has surrendered - null the rest of the time.
   revealedSpyUserId: string | null;
+  // Why the round is currently REVEALED - "SURRENDER" if the Spy gave up
+  // voluntarily, or "VOTE_ESCAPED" if the group's accusation vote just
+  // finished without catching the Spy and this is their one bonus chance
+  // to guess for 3pt instead of the usual 1pt escape (a timeout here is
+  // NOT a loss, unlike SURRENDER). Null outside REVEALED.
+  revealedReason: "SURRENDER" | "VOTE_ESCAPED" | null;
   // Set only during a tie-extension "debate round" - the userIds who tied
   // for the most votes last time, and the only legal accusation targets
   // until the round resolves. Null the rest of the time.
