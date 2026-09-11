@@ -1,4 +1,6 @@
-export type SpyfallPhase = "IN_PROGRESS" | "VOTING" | "FINISHED";
+// REVEALED: the Spy "surrendered" - outed to everyone immediately, with a
+// dedicated answer window and no group voting involved at all.
+export type SpyfallPhase = "IN_PROGRESS" | "VOTING" | "REVEALED" | "FINISHED";
 
 export interface SpyfallPublicPlayer {
   userId: string;
@@ -53,6 +55,8 @@ export interface SpyfallPublicState {
   result: SpyfallResult | null;
   voteCallers: string[];
   requiredVoteCallers: number;
+  // Set once the Spy has surrendered - null the rest of the time.
+  revealedSpyUserId: string | null;
 }
 
 // Only ever holds THIS browser's own player - never another player's role.
@@ -71,4 +75,5 @@ export const SPYFALL_ACTIONS = {
   CALL_VOTE: "spyfall:callVote",
   VOTE: "spyfall:vote",
   GUESS: "spyfall:guess",
+  SURRENDER: "spyfall:surrender",
 } as const;

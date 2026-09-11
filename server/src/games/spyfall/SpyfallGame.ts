@@ -58,6 +58,10 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   private tieExtensionsUsed = 0;
   private disconnected: Set<string> = new Set();
   private phase: SpyfallPhase = "IN_PROGRESS";
+  // Set once the Spy surrenders (see handleSurrender) and never unset -
+  // this is what getPublicState uses to decide whether to expose spyUserId
+  // early, before the round actually concludes.
+  private revealed = false;
   private result: SpyfallResult | null = null;
   private discussionSeconds: number = SPYFALL_TIMER_SECONDS;
   private timerEndsAt: number | null = null;
@@ -148,6 +152,9 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       case SPYFALL_ACTIONS.GUESS:
         this.handleGuess(userId, validateGuessPayload(payload).location);
         break;
+      case SPYFALL_ACTIONS.SURRENDER:
+        this.handleSurrender(userId);
+        break;
       default:
         throw new GameActionError(`ไม่รู้จักการกระทำนี้: ${actionType}`);
     }
@@ -187,13 +194,11 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     });
   }
 
-  // Any player can call for a vote - once EVERY current player has called
-  // for it (unanimous, see requiredVoteCallers), the room moves into the
-  // dedicated voting screen (see getPublicState().voteCallers/
-  // requiredVoteCallers). The Spy calling this same action is different:
-  // it's their own unilateral "stop the game, I want to answer now" - no
-  // group agreement needed, it opens voting immediately just for them to
-  // guess, regardless of how many others have (or haven't) also called.
+  // Every player - the Spy included, with no special-casing - can call for
+  // a vote; once EVERY current player has (unanimous, see
+  // requiredVoteCallers), the room moves into the dedicated voting screen.
+  // The Spy gets no unilateral shortcut here: the only ways into voting are
+  // everyone agreeing, or the discussion clock running out.
   private handleCallVote(userId: string): void {
     if (this.phase !== "IN_PROGRESS") {
       throw new GameActionError("ตอนนี้ไม่ได้อยู่ในช่วงพูดคุย เปิดโหวตไม่ได้");
@@ -201,11 +206,6 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (this.voteCallers.has(userId)) return;
 
     this.voteCallers.add(userId);
-
-    if (userId === this.spyUserId) {
-      this.openVoting("สปายขอหยุดเกมเพื่อตอบ!");
-      return;
-    }
 
     const required = requiredVoteCallers(this.players.size);
     if (this.voteCallers.size >= required) {
@@ -216,11 +216,11 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   }
 
   // Replaces the discussion clock with a fresh SPYFALL_VOTING_SECONDS
-  // countdown the moment voting opens, whichever way it opened (everyone
-  // calling for a vote, or the Spy's own unilateral stop) - the same
-  // deadline serves both the Spy (to submit their final answer) and the
-  // rest of the group (to finish accusing someone). If it runs out before
-  // either happens, forceEndByTimer resolves the round from whatever was
+  // countdown the moment voting opens - the same deadline serves both the
+  // Spy (to submit their final answer) and the rest of the group (to
+  // finish accusing someone; the Spy may also cast their own decoy vote
+  // like anyone else - see handleVote). If it runs out before either
+  // happens, forceEndByTimer resolves the round from whatever was
   // submitted so far, exactly like a discussion-phase timeout does.
   private openVoting(systemMessage: string): void {
     this.phase = "VOTING";
@@ -228,6 +228,10 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.appendSystemLog(systemMessage); // also emits STATE_CHANGED
   }
 
+  // Anyone currently in the round can cast an accusation vote here - the
+  // Spy included. Letting the Spy vote too (typically as a decoy, since
+  // they already know who they are) keeps their `hasVoted` flag looking
+  // the same as everyone else's instead of being a dead giveaway.
   private handleVote(voterId: string, targetUserId: string): void {
     if (this.phase !== "VOTING") {
       throw new GameActionError("ต้องเปิดโหมดโหวตก่อนถึงจะโหวตได้ - กด \"ขอเปิดโหวต\" ก่อน");
@@ -242,24 +246,53 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.votes.set(voterId, targetUserId);
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
 
-    // The Spy never casts a vote (they submit a guess instead), so the
-    // group is done as soon as every OTHER player has - no need to wait
-    // out the rest of the voting timer once that happens.
-    const votersExpected = this.players.size - 1;
-    if (this.votes.size >= votersExpected) {
+    // The Spy's own vote (if they bother to cast one) is optional camouflage
+    // and doesn't count toward this - counted separately so a Spy who votes
+    // early can never make the round resolve before every OTHER player has
+    // actually had their say.
+    const nonSpyVotesCast = Array.from(this.votes.keys()).filter((id) => id !== this.spyUserId).length;
+    if (nonSpyVotesCast >= this.players.size - 1) {
       this.resolveByVotes("ทุกคนโหวตครบแล้ว");
     }
   }
 
+  // The Spy's own "surrender" - a separate, Spy-only escape hatch from the
+  // shared unanimous call-vote button. Pressing it immediately outs them to
+  // the whole table (no more hiding) but hands them an uncontested
+  // SPYFALL_VOTING_SECONDS window to answer alone, instead of sharing the
+  // clock with a group vote. There's no going back to IN_PROGRESS from
+  // here, and no group vote happens at all in this path - see handleGuess
+  // and resolveRevealedTimeout for how REVEALED always resolves.
+  private handleSurrender(userId: string): void {
+    if (userId !== this.spyUserId) {
+      throw new GameActionError("เฉพาะสปายเท่านั้นที่กดปุ่มนี้ได้");
+    }
+    if (this.phase !== "IN_PROGRESS") {
+      throw new GameActionError("ใช้ปุ่มนี้ได้เฉพาะตอนพูดคุยเท่านั้น");
+    }
+
+    this.revealed = true;
+    this.phase = "REVEALED";
+    this.beginTimer(SPYFALL_VOTING_SECONDS);
+    const spyUsername = this.players.get(userId)?.username ?? "ไม่ทราบชื่อ";
+    this.appendSystemLog(
+      `${spyUsername} เปิดเผยตัวว่าเป็นสปาย! ขอเวลา ${SPYFALL_VOTING_SECONDS / 60} นาทีในการทายสถานที่`
+    ); // also emits STATE_CHANGED
+  }
+
   // The Spy picks their final answer from the real location list - the
   // server itself checks it against the actual location, so there's no
-  // more honor-system self-report of "correct/wrong".
+  // more honor-system self-report of "correct/wrong". Reachable from either
+  // VOTING (answering alongside the group's accusation vote) or REVEALED
+  // (answering alone, having already surrendered).
   private handleGuess(userId: string, guessedLocation: string): void {
     if (userId !== this.spyUserId) {
       throw new GameActionError("เฉพาะสปายเท่านั้นที่ตอบได้");
     }
-    if (this.phase !== "VOTING") {
-      throw new GameActionError("ต้องเปิดโหมดโหวตก่อนถึงจะตอบได้ - กด \"หยุดเกมเพื่อตอบ\" ก่อน");
+    if (this.phase !== "VOTING" && this.phase !== "REVEALED") {
+      throw new GameActionError(
+        "ต้องเปิดโหมดโหวต หรือกดยอมแพ้ขอทายก่อนถึงจะตอบได้"
+      );
     }
 
     const correct = guessedLocation === this.location!.name;
@@ -277,12 +310,32 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   }
 
   // Fires from whichever timer is currently running - the discussion
-  // clock, a tie-extension, or the voting/answer deadline - so the reason
-  // text is picked from the phase that was active when it expired, rather
-  // than always saying "discussion time's up" even during a vote.
+  // clock, a tie-extension, the voting/answer deadline, or the Spy's own
+  // post-surrender answer window - so the reason text (and resolution path)
+  // matches whatever phase was actually active when it expired.
   private forceEndByTimer(): void {
     if (this.finished) return;
+    if (this.phase === "REVEALED") {
+      this.resolveRevealedTimeout();
+      return;
+    }
     this.resolveByVotes(this.phase === "VOTING" ? "หมดเวลาโหวต/ตอบ!" : "หมดเวลาแล้ว");
+  }
+
+  // The Spy surrendered (outing themselves) but never actually submitted an
+  // answer within their window. Unlike a discussion/voting timeout - where
+  // an unaccused Spy quietly escapes by default - here everyone already
+  // knows who they are, so failing to answer in time is a straightforward
+  // loss for the Spy rather than an escape.
+  private resolveRevealedTimeout(): void {
+    const spyUsername = this.players.get(this.spyUserId!)?.username ?? "ไม่ทราบชื่อ";
+    this.conclude({
+      winner: "NON_SPY",
+      reason: `หมดเวลาทาย! ${spyUsername} เปิดเผยตัวไปแล้วแต่ทายไม่ทันเวลา`,
+      spyUserId: this.spyUserId!,
+      spyUsername,
+      location: this.location!.name,
+    });
   }
 
   private resolveByVotes(reasonPrefix: string): void {
@@ -389,7 +442,8 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   getPublicState(): SpyfallPublicState {
     return {
       phase: this.phase,
-      timerDurationSeconds: this.phase === "VOTING" ? SPYFALL_VOTING_SECONDS : this.discussionSeconds,
+      timerDurationSeconds:
+        this.phase === "VOTING" || this.phase === "REVEALED" ? SPYFALL_VOTING_SECONDS : this.discussionSeconds,
       timerEndsAt: this.timerEndsAt,
       players: this.getPlayers().map((p) => ({
         userId: p.userId,
@@ -401,6 +455,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       result: this.finished ? this.result : null,
       voteCallers: Array.from(this.voteCallers),
       requiredVoteCallers: requiredVoteCallers(this.players.size),
+      revealedSpyUserId: this.revealed ? this.spyUserId : null,
     };
   }
 

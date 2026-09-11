@@ -5,7 +5,6 @@ interface VoteRequestModalProps {
   callerNames: string[];
   callerCount: number;
   requiredCount: number;
-  isSpy: boolean;
   isSubmitting: boolean;
   onAgree: () => void;
   onDismiss: () => void;
@@ -14,12 +13,13 @@ interface VoteRequestModalProps {
 // Pops up for anyone who hasn't called for a vote yet, whenever someone
 // else does - a hard-to-miss prompt instead of the easy-to-overlook
 // "X / Y คนขอโหวตแล้ว" counter alone. Dismissing it doesn't call a vote;
-// it just goes away until the count moves again.
+// it just goes away until the count moves again. Identical for everyone,
+// the Spy included - opening the vote needs unanimous agreement, and the
+// Spy has no separate unilateral shortcut here.
 export function VoteRequestModal({
   callerNames,
   callerCount,
   requiredCount,
-  isSpy,
   isSubmitting,
   onAgree,
   onDismiss,
@@ -40,12 +40,8 @@ export function VoteRequestModal({
           <Button variant="secondary" onClick={onDismiss} disabled={isSubmitting}>
             ยังไม่ตอนนี้
           </Button>
-          <Button
-            variant={isSpy ? "danger" : "primary"}
-            onClick={onAgree}
-            isLoading={isSubmitting}
-          >
-            {isSpy ? "หยุดเกม (ขอตอบ)" : "เห็นด้วย - ขอเปิดโหวตด้วย"}
+          <Button variant="primary" onClick={onAgree} isLoading={isSubmitting}>
+            เห็นด้วย - ขอเปิดโหวตด้วย
           </Button>
         </div>
       </Card>

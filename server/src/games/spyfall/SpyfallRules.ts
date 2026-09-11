@@ -19,12 +19,16 @@ export const SPYFALL_TIE_EXTENSION_SECONDS = 5 * 60;
 // Safety cap so a group that keeps tying can't stall the round forever.
 export const SPYFALL_MAX_TIE_EXTENSIONS = 2;
 
-// Once voting opens (either the group unanimously calling for it, or the
-// Spy's own unilateral stop), this is how long everyone has to finish -
+// Once voting opens (everyone unanimously calling for it, or the
+// discussion clock running out), this is how long everyone has to finish -
 // the Spy to submit their final answer, the rest of the group to finish
 // accusing someone - before the round resolves from whatever's been
 // submitted so far. Deliberately the same clock for both: they open at
 // the same moment and this one timer is the shared deadline for both.
+//
+// Also reused as the Spy's own dedicated window after they "surrender"
+// (SPYFALL_ACTIONS.SURRENDER) - same length, but uncontested: nobody else
+// is racing that clock, since there's no group vote in that path at all.
 export const SPYFALL_VOTING_SECONDS = 5 * 60;
 
 // --- Payload validation -----------------------------------------------
@@ -99,11 +103,10 @@ export function validateGuessPayload(payload: unknown): SpyfallGuessPayload {
 // --- Vote call threshold -------------------------------------------------
 
 /**
- * Every current player - the Spy included - must call for a vote before
- * the group actually moves into the voting phase. (The Spy has its own
- * separate shortcut that skips this requirement entirely - see
- * SpyfallGame.handleCallVote - so this unanimous count only ever gates
- * the non-Spy players waiting on each other.)
+ * Every current player - the Spy included, with no special-casing - must
+ * call for a vote before the group actually moves into the voting phase.
+ * The only ways into voting are everyone unanimously agreeing here, or the
+ * discussion clock running out.
  */
 export function requiredVoteCallers(playerCount: number): number {
   return playerCount;

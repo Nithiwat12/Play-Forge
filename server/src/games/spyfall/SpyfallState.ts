@@ -1,4 +1,8 @@
-export type SpyfallPhase = "IN_PROGRESS" | "VOTING" | "FINISHED";
+// REVEALED: the Spy chose to "surrender" (see SPYFALL_ACTIONS.SURRENDER) -
+// they're outed to everyone immediately and get a dedicated answer window,
+// with no group voting involved at all. Distinct from VOTING, where nobody
+// knows who the Spy is yet and the group is accusing someone.
+export type SpyfallPhase = "IN_PROGRESS" | "VOTING" | "REVEALED" | "FINISHED";
 
 export interface SpyfallPublicPlayer {
   userId: string;
@@ -59,11 +63,15 @@ export interface SpyfallPublicState {
   log: SpyfallLogEntry[];
   result: SpyfallResult | null;
   // Call-to-vote progress: how many players have asked to open the voting
-  // screen, and how many are required (everyone - unanimous) before it
-  // opens. (The Spy has a separate unilateral bypass that skips this
-  // requirement entirely - see SpyfallGame.handleCallVote.)
+  // screen, and how many are required (everyone - unanimous, the Spy
+  // included with no special-casing) before it opens.
   voteCallers: string[];
   requiredVoteCallers: number;
+  // Set only once the Spy has "surrendered" (see SPYFALL_ACTIONS.SURRENDER) -
+  // null the rest of the time, including all of IN_PROGRESS/VOTING. Once
+  // set it stays set (through REVEALED and into FINISHED) so the reveal
+  // banner and result screen can both read it the same way.
+  revealedSpyUserId: string | null;
 }
 
 // Only ever holds THIS browser's own player - never another player's role.
@@ -89,6 +97,9 @@ export const SPYFALL_ACTIONS = {
   CALL_VOTE: "spyfall:callVote",
   VOTE: "spyfall:vote",
   GUESS: "spyfall:guess",
+  // The Spy's "surrender / go straight to answering" action - only the Spy
+  // may send it, and only during IN_PROGRESS. No payload.
+  SURRENDER: "spyfall:surrender",
 } as const;
 
 export interface SpyfallQuestionPayload {
