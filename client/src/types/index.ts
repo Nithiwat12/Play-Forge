@@ -71,6 +71,12 @@ export interface Room {
   players: RoomPlayer[];
   settings: RoomSettings | null;
   createdAt: string;
+  // Only ever set on the rooms returned by /users/me/active-rooms and
+  // /users/me/left-rooms (see server UserService.attachMatchComplete) -
+  // true once the room has already played out its full configured round
+  // count, so the History page can offer "view scoreboard" instead of
+  // "rejoin" for it. Undefined everywhere else.
+  matchComplete?: boolean;
 }
 
 export interface HistoryEntry {

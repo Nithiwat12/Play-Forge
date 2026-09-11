@@ -10,6 +10,7 @@ import { Voting } from "./Voting";
 import { LocationChecklist } from "./LocationChecklist";
 import { GuessModal } from "./GuessModal";
 import { VoteRequestModal } from "./VoteRequestModal";
+import { ScoreboardTable } from "../../components/game/ScoreboardTable";
 import { SPYFALL_ACTIONS } from "./types";
 import type { SpyfallPublicState, SpyfallPrivateState } from "./types";
 import type { Room, Scoreboard } from "../../types";
@@ -82,6 +83,20 @@ export function SpyfallGame({
     selfUserId && publicState.votePoll?.responderIds.includes(selfUserId)
   );
   const matchComplete = scoreboard?.matchComplete ?? false;
+
+  // Once the whole match has played out its configured round count, the
+  // room's lobby can never start another round (see the server's
+  // assertRoundCanStart) - sending the player there is a dead end. Go
+  // straight home instead, with a one-off notice Home.tsx picks up and
+  // shows, same idea as matchComplete already being true here (computed
+  // from the scoreboard fetched over the game:end socket event).
+  function handleBackToLobbyOrHome() {
+    if (matchComplete) {
+      navigate("/home", { state: { notice: `เกม "${room.roomName}" จบแล้ว! เล่นครบ ${scoreboard?.numberOfRounds} รอบ` } });
+    } else {
+      navigate(`/lobby/${room.roomCode}`);
+    }
+  }
 
   // Live countdown for the call-vote button's post-rejection cooldown -
   // purely for display, the server is what actually enforces it.
@@ -324,57 +339,15 @@ export function SpyfallGame({
                   รอผลโหวตว่าจะเล่นต่อหรือกลับล็อบบี้...
                 </p>
               )}
-              <Button variant="secondary" onClick={() => navigate(`/lobby/${room.roomCode}`)}>
-                กลับไปที่ล็อบบี้
+              <Button variant="secondary" onClick={handleBackToLobbyOrHome}>
+                {matchComplete ? "กลับหน้าหลัก" : "กลับไปที่ล็อบบี้"}
               </Button>
             </div>
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
           </Card>
         )}
 
-        {isFinished && scoreboard && scoreboard.roundsPlayed > 0 && (
-          <Card>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-slate-300">ตารางคะแนนรวม</h2>
-              {scoreboard.numberOfRounds && (
-                <span className="text-xs text-slate-500">
-                  เล่นแล้ว {scoreboard.roundsPlayed} / {scoreboard.numberOfRounds} รอบ
-                </span>
-              )}
-            </div>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-max text-left text-sm">
-                <thead>
-                  <tr className="text-xs uppercase text-slate-500">
-                    <th className="pb-2 pr-3">ผู้เล่น</th>
-                    {scoreboard.rounds.map((r) => (
-                      <th key={r.round} className="px-2 pb-2 text-center">
-                        รอบ {r.round}
-                      </th>
-                    ))}
-                    <th className="pb-2 pl-3 text-right">รวม</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scoreboard.players.map((p) => {
-                    const total = scoreboard.totals.find((t) => t.userId === p.userId)?.total ?? 0;
-                    return (
-                      <tr key={p.userId} className="border-t border-slate-800">
-                        <td className="py-2 pr-3 text-slate-200">{p.username}</td>
-                        {scoreboard.rounds.map((r) => (
-                          <td key={r.round} className="px-2 py-2 text-center text-slate-400">
-                            {r.scores[p.userId] ?? 0}
-                          </td>
-                        ))}
-                        <td className="py-2 pl-3 text-right font-semibold text-white">{total}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )}
+        {isFinished && scoreboard && <ScoreboardTable scoreboard={scoreboard} />}
 
         {isDebateRound && (
           <Card className="border-amber-700">

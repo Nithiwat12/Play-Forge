@@ -59,4 +59,11 @@ export interface PublicRoom {
   players: PublicRoomPlayer[];
   settings: RoomSettings | null;
   createdAt: string;
+  // Whether this room has already played out its configured round limit -
+  // set only by UserService's active/left-rooms lookups (which already pay
+  // for the round-count query for their own listing UI), so it's undefined
+  // everywhere else. A room with no numberOfRounds configured is never
+  // "complete" this way. See ScoreboardService.matchComplete for the
+  // authoritative version computed from a room's actual scoreboard.
+  matchComplete?: boolean;
 }

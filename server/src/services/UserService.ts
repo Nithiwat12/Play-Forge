@@ -100,7 +100,7 @@ export const UserService = {
       include: roomWithRelations,
     });
 
-    return rooms.map((room) => RoomService.toPublicRoom(room));
+    return attachMatchComplete(rooms.map((room) => RoomService.toPublicRoom(room)));
   },
 
   // Rooms this user left (leftAt set on their RoomPlayer row) that still
@@ -122,6 +122,40 @@ export const UserService = {
       include: roomWithRelations,
     });
 
-    return rooms.map((room) => RoomService.toPublicRoom(room));
+    return attachMatchComplete(rooms.map((room) => RoomService.toPublicRoom(room)));
   },
 };
+
+// A room sitting in WAITING can mean two very different things: a fresh
+// lobby nobody has started yet, or a match that already played out its
+// full configured round count and can never start another round (see
+// RoomService's assertRoundCanStart). The History page needs to tell those
+// apart - "rejoin" makes no sense for the latter, "view the scoreboard"
+// does - so this tags each room with the same matchComplete definition
+// ScoreboardService uses (numberOfRounds set AND reached), batched into one
+// query rather than one round-count lookup per room.
+async function attachMatchComplete(rooms: PublicRoom[]): Promise<PublicRoom[]> {
+  const roomIdsWithLimit = rooms
+    .filter((room) => room.settings?.numberOfRounds)
+    .map((room) => room.id);
+
+  if (roomIdsWithLimit.length === 0) {
+    return rooms.map((room) => ({ ...room, matchComplete: false }));
+  }
+
+  const counts = await prisma.gameSession.groupBy({
+    by: ["roomId"],
+    where: { roomId: { in: roomIdsWithLimit }, status: "COMPLETED" },
+    _count: { _all: true },
+  });
+  const roundsPlayedByRoomId = new Map(counts.map((c) => [c.roomId, c._count._all]));
+
+  return rooms.map((room) => {
+    const numberOfRounds = room.settings?.numberOfRounds;
+    const roundsPlayed = roundsPlayedByRoomId.get(room.id) ?? 0;
+    return {
+      ...room,
+      matchComplete: Boolean(numberOfRounds && roundsPlayed >= numberOfRounds),
+    };
+  });
+}

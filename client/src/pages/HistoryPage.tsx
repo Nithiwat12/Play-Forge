@@ -78,10 +78,16 @@ export function HistoryPage() {
                     </p>
                     <p className="text-xs text-slate-500">
                       รหัสห้อง {room.roomCode} ·{" "}
-                      {room.status === "WAITING" ? "รอในล็อบบี้" : "กำลังเล่น"}
+                      {room.matchComplete
+                        ? "จบแมตช์แล้ว"
+                        : room.status === "WAITING"
+                          ? "รอในล็อบบี้"
+                          : "กำลังเล่น"}
                     </p>
                   </div>
-                  <Button onClick={() => handleRejoin(room)}>กลับเข้าเกม</Button>
+                  <Button onClick={() => handleRejoin(room)}>
+                    {room.matchComplete ? "ดูตารางคะแนน" : "กลับเข้าเกม"}
+                  </Button>
                 </Card>
               ))}
             </div>
@@ -108,13 +114,15 @@ export function HistoryPage() {
                     </p>
                     <p className="text-xs text-slate-500">
                       รหัสห้อง {room.roomCode} ·{" "}
-                      {room.status === "WAITING" ? "รอในล็อบบี้" : "กำลังเล่นอยู่"}
+                      {room.matchComplete
+                        ? "จบแมตช์แล้ว"
+                        : room.status === "WAITING"
+                          ? "รอในล็อบบี้"
+                          : "กำลังเล่นอยู่"}
                     </p>
                   </div>
-                  <Button variant="secondary" onClick={() => room.hasPassword && room.status === "WAITING"
-                    ? navigate(`/games/${room.game.slug}/join`)
-                    : handleRejoin(room)}>
-                    เข้าห้องอีกครั้ง
+                  <Button variant="secondary" onClick={() => handleRejoin(room)}>
+                    {room.matchComplete ? "ดูตารางคะแนน" : "เข้าห้องอีกครั้ง"}
                   </Button>
                 </Card>
               ))}

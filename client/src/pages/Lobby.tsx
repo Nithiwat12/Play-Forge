@@ -7,6 +7,7 @@ import { Spinner } from "../components/common/Spinner";
 import { ConfirmModal } from "../components/common/ConfirmModal";
 import { RoomCodeBadge } from "../components/room/RoomCodeBadge";
 import { PlayerListItem } from "../components/room/PlayerListItem";
+import { ScoreboardTable } from "../components/game/ScoreboardTable";
 import { subscribeToRoom } from "../services/roomConnection";
 import { connectSocket, emitWithAck } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
@@ -229,7 +230,7 @@ export function Lobby() {
 
           {matchComplete && (
             <p className="mt-3 text-sm font-medium text-amber-400">
-              🏆 แมตช์นี้เล่นครบ {scoreboard?.numberOfRounds} รอบแล้ว ดูผลคะแนนได้จากรอบล่าสุด หรือสร้างห้องใหม่เพื่อเล่นแมตช์ต่อไป
+              🏆 แมตช์นี้เล่นครบ {scoreboard?.numberOfRounds} รอบแล้ว ดูตารางคะแนนรวมด้านล่าง หรือสร้างห้องใหม่เพื่อเล่นแมตช์ต่อไป
             </p>
           )}
 
@@ -241,6 +242,12 @@ export function Lobby() {
             </p>
           )}
         </Card>
+
+        {matchComplete && scoreboard && (
+          <div className="mt-4">
+            <ScoreboardTable scoreboard={scoreboard} />
+          </div>
+        )}
       </main>
       {showDisbandConfirm && (
         <ConfirmModal
