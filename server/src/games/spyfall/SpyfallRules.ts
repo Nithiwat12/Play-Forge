@@ -127,13 +127,18 @@ export function validateGuessPayload(payload: unknown): SpyfallGuessPayload {
 // --- Call-vote poll threshold ---------------------------------------------
 
 /**
- * Majority threshold (more than half) used to resolve the "open the
- * accusation vote?" poll early in either direction - the same "more than
- * half" rule the room-level continue-play poll uses. The Spy gets no
- * special-casing: their response counts exactly like anyone else's.
+ * Threshold used to resolve the "open the accusation vote?" poll early in
+ * either direction - at least half of the room, not a strict "more than
+ * half" majority (so with an even headcount, exactly half agreeing is
+ * already enough to open voting rather than needing one more than that).
+ * Since a lone requester's own auto-accept is only ever 1 vote and the room
+ * requires SPYFALL_MIN_PLAYERS = 3 players, this can never resolve from
+ * just the requester alone - it always takes at least one more response.
+ * The Spy gets no special-casing: their response counts exactly like
+ * anyone else's.
  */
 export function requiredPollMajority(totalPlayers: number): number {
-  return Math.floor(totalPlayers / 2) + 1;
+  return Math.ceil(totalPlayers / 2);
 }
 
 // --- Vote resolution -----------------------------------------------------

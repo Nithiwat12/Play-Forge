@@ -13,6 +13,12 @@ export interface HistoryEntry {
   startedAt: string;
   finishedAt: string | null;
   resultData: unknown;
+  // Every player who sat in the room this round was played in, so the
+  // client can turn the userIds inside resultData.details (e.g. Spyfall's
+  // per-player scores map) into actual names without a separate lookup -
+  // resultData itself is opaque JSON, but a userId with nothing to resolve
+  // it against is useless to show.
+  players: { userId: string; username: string }[];
 }
 
 export const UserService = {
@@ -34,7 +40,7 @@ export const UserService = {
       },
       include: {
         game: true,
-        room: true,
+        room: { include: { players: { select: { userId: true, user: { select: { username: true } } } } } },
         history: true,
       },
       orderBy: { startedAt: "desc" },
@@ -56,6 +62,7 @@ export const UserService = {
         startedAt: session.startedAt.toISOString(),
         finishedAt: session.finishedAt ? session.finishedAt.toISOString() : null,
         resultData: session.history[0]?.resultData ?? null,
+        players: session.room.players.map((p) => ({ userId: p.userId, username: p.user.username })),
       }));
   },
 

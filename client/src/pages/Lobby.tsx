@@ -60,9 +60,9 @@ export function Lobby() {
       navigate(`/play/${updatedRoom.roomCode}`);
     }
 
-    function handleDisbanded() {
+    function handleDisbanded(payload: { message?: string } = {}) {
       clearRoom();
-      navigate("/home", { replace: true });
+      navigate("/home", { replace: true, state: payload.message ? { notice: payload.message } : undefined });
     }
 
     socket.on("room:update", handleRoomUpdate);

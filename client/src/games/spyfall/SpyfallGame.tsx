@@ -23,6 +23,10 @@ interface SpyfallGameProps {
   onAction: (actionType: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
   onReplay: () => Promise<{ ok: boolean; error?: string }>;
   scoreboard: Scoreboard | null;
+  // Set once the match is complete - the server auto-closes the room at
+  // this timestamp (see gameSocket's finalizeGame), so this just drives a
+  // matching countdown display here.
+  matchClosesAt?: number | null;
 }
 
 export function SpyfallGame({
@@ -32,6 +36,7 @@ export function SpyfallGame({
   selfUserId,
   onAction,
   scoreboard,
+  matchClosesAt,
 }: SpyfallGameProps) {
   const navigate = useNavigate();
   const [targetUserId, setTargetUserId] = useState<string>("");
@@ -97,6 +102,19 @@ export function SpyfallGame({
       navigate(`/lobby/${room.roomCode}`);
     }
   }
+
+  // Live countdown to the room's auto-close once the match is complete -
+  // purely for display, the server is what actually closes it (see
+  // gameSocket's scheduleMatchCompleteDisband).
+  const [nowForMatchClose, setNowForMatchClose] = useState(() => Date.now());
+  useEffect(() => {
+    if (!matchClosesAt) return;
+    const interval = setInterval(() => setNowForMatchClose(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [matchClosesAt]);
+  const matchClosesSecondsLeft = matchClosesAt
+    ? Math.max(0, Math.ceil((matchClosesAt - nowForMatchClose) / 1000))
+    : 0;
 
   // Live countdown for the call-vote button's post-rejection cooldown -
   // purely for display, the server is what actually enforces it.
@@ -332,7 +350,7 @@ export function SpyfallGame({
             <div className="mt-4 flex flex-wrap items-center gap-3">
               {matchComplete ? (
                 <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
-                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง
+                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - ห้องจะปิดอัตโนมัติใน {matchClosesSecondsLeft} วินาที
                 </p>
               ) : (
                 <p className="flex items-center text-xs text-slate-500">

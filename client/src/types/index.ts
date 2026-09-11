@@ -89,6 +89,10 @@ export interface HistoryEntry {
   startedAt: string;
   finishedAt: string | null;
   resultData: unknown;
+  // Every player who sat in the room this round was played in - lets
+  // GameResult.tsx resolve userIds inside resultData.details (e.g.
+  // Spyfall's per-player scores map) into actual names.
+  players: { userId: string; username: string }[];
 }
 
 export interface ApiErrorResponse {

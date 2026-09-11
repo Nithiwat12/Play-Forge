@@ -35,6 +35,16 @@ export function HistoryPage() {
     navigate(room.status === "WAITING" ? `/lobby/${room.roomCode}` : `/play/${room.roomCode}`);
   }
 
+  // Match-complete rooms are auto-closed by the server a few seconds after
+  // their last round ends (see gameSocket's scheduleMatchCompleteDisband),
+  // so by the time someone comes back here the room has very likely already
+  // gone FINISHED - rejoining it would just fail with "ห้องนี้ปิดแล้ว". Go
+  // straight to the read-only scoreboard view instead, which works
+  // regardless of the room's status.
+  function handleViewScoreboard(room: Room) {
+    navigate(`/scoreboard/${room.roomCode}`, { state: { room } });
+  }
+
   async function handleDeleteHistory(gameSessionId: string) {
     if (!window.confirm("ลบประวัติเกมรอบนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
     setDeletingId(gameSessionId);
@@ -85,7 +95,7 @@ export function HistoryPage() {
                           : "กำลังเล่น"}
                     </p>
                   </div>
-                  <Button onClick={() => handleRejoin(room)}>
+                  <Button onClick={() => (room.matchComplete ? handleViewScoreboard(room) : handleRejoin(room))}>
                     {room.matchComplete ? "ดูตารางคะแนน" : "กลับเข้าเกม"}
                   </Button>
                 </Card>
@@ -121,7 +131,10 @@ export function HistoryPage() {
                           : "กำลังเล่นอยู่"}
                     </p>
                   </div>
-                  <Button variant="secondary" onClick={() => handleRejoin(room)}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => (room.matchComplete ? handleViewScoreboard(room) : handleRejoin(room))}
+                  >
                     {room.matchComplete ? "ดูตารางคะแนน" : "เข้าห้องอีกครั้ง"}
                   </Button>
                 </Card>

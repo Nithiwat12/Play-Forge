@@ -264,9 +264,12 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     } else if (no >= required) {
       this.resolveVotePoll(false);
     } else if (this.votePoll.votes.size >= this.players.size) {
-      // Everyone answered but neither side reached a majority (only
-      // possible with an even headcount split down the middle) - resolve
-      // now rather than waiting out the rest of the poll timeout.
+      // Defensive fallback only - with required set to "at least half"
+      // (see requiredPollMajority), whichever side the last vote pushes
+      // to totalPlayers/2 already triggers one of the two branches above
+      // before everyone could possibly have answered, so this shouldn't
+      // actually be reachable. Kept as a safety net rather than relying on
+      // that invariant never changing.
       this.resolveVotePoll(yes > no);
     } else {
       this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);

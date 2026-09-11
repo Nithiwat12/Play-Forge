@@ -3,31 +3,12 @@ import { RoomService } from "../services/RoomService";
 import { GameManager } from "../games/core/GameManager";
 import { GameSessionService } from "../services/GameSessionService";
 import { RoomPresence } from "./roomPresence";
-import { withPresence } from "./socketUtils";
+import { withPresence, broadcastRoomClosed } from "./socketUtils";
 import { joinRoomSchema } from "../utils/validators";
 import type { AppServer, AppSocket } from "./socketAuth";
 
 type Ack = (response: { ok: true; room?: unknown; gameState?: { roomId: string; public: unknown; private: unknown } | null } | { ok: false; error: string }) => void;
 const noopAck: Ack = () => {};
-
-/**
- * Shared teardown broadcast for "this room no longer exists" - used both
- * by the host-initiated room:disband handler below and by the idle-lobby
- * auto-disband sweep (see RoomCleanupService), so the two call sites can
- * never drift out of sync. Kicks every connected member back to their
- * home screen with one message, then clears their socket-room membership
- * and presence bookkeeping.
- */
-export async function broadcastRoomClosed(io: AppServer, roomId: string, message: string) {
-  io.to(roomId).emit("room:disbanded", { message });
-
-  const socketsInRoom = await io.in(roomId).fetchSockets();
-  for (const memberSocket of socketsInRoom) {
-    memberSocket.leave(roomId);
-    delete memberSocket.data.currentRoomId;
-  }
-  RoomPresence.clearRoom(roomId);
-}
 
 /**
  * Generic room lifecycle events, shared by every game on the platform.

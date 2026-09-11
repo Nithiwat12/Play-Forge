@@ -1,6 +1,6 @@
 import { RoomPresence } from "../socket/roomPresence";
 import { RoomService } from "./RoomService";
-import { broadcastRoomClosed } from "../socket/roomSocket";
+import { broadcastRoomClosed } from "../socket/socketUtils";
 import type { AppServer } from "../socket/socketAuth";
 
 const IDLE_WAITING_MS = 10 * 60 * 1000; // 10 minutes

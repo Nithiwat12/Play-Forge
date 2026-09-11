@@ -40,6 +40,11 @@ export function PlayPage() {
   const [isSubmittingContinueVote, setIsSubmittingContinueVote] = useState(false);
   const [isSkippingContinueDelay, setIsSkippingContinueDelay] = useState(false);
 
+  // Set once the match has played out its full round count (see gameSocket's
+  // finalizeGame) - the server auto-closes the room at this same deadline,
+  // so this is purely for showing a matching countdown on this end.
+  const [matchClosesAt, setMatchClosesAt] = useState<number | null>(null);
+
   useEffect(() => {
     if (!roomCode) { setError("ไม่พบรหัสห้อง"); setIsLoading(false); return; }
     setIsLoading(true);
@@ -49,6 +54,7 @@ export function PlayPage() {
     setContinuePoll(null);
     setContinueResolution(null);
     setContinueError(null);
+    setMatchClosesAt(null);
     const socket = connectSocket();
     let cancelled = false;
 
@@ -75,8 +81,12 @@ export function PlayPage() {
       setContinueResolution(null);
     }
 
-    function handleGameEnd(payload: { scoreboard?: Scoreboard | null }) {
+    function handleGameEnd(payload: { scoreboard?: Scoreboard | null; closesAt?: number | null }) {
       if (payload.scoreboard) setScoreboard(payload.scoreboard);
+      // Set only once the match has played out its full round count (see
+      // gameSocket's finalizeGame) - the server auto-closes the room at
+      // this same deadline, so this just mirrors that countdown for display.
+      setMatchClosesAt(payload.closesAt ?? null);
     }
 
     function handleRoomUpdate({ room: updatedRoom }: { room: Room }) {
@@ -84,10 +94,10 @@ export function PlayPage() {
       setRoom(updatedRoom);
     }
 
-    function handleDisbanded() {
+    function handleDisbanded(payload: { message?: string } = {}) {
       clearRoom();
       clear();
-      navigate("/home", { replace: true });
+      navigate("/home", { replace: true, state: payload.message ? { notice: payload.message } : undefined });
     }
 
     // Game-agnostic "play another round?" flow (see ContinueRoundPrompt) -
@@ -318,6 +328,7 @@ export function PlayPage() {
         onAction={handleAction}
         onReplay={handleReplay}
         scoreboard={scoreboard}
+        matchClosesAt={matchClosesAt}
       />
       {showLeaveConfirm && (
         <ConfirmModal

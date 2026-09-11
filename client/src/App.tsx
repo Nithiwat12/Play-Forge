@@ -21,6 +21,9 @@ const Lobby = lazy(() => import("./pages/Lobby").then((m) => ({ default: m.Lobby
 const PlayPage = lazy(() => import("./pages/PlayPage").then((m) => ({ default: m.PlayPage })));
 const HistoryPage = lazy(() => import("./pages/HistoryPage").then((m) => ({ default: m.HistoryPage })));
 const GameResult = lazy(() => import("./pages/GameResult").then((m) => ({ default: m.GameResult })));
+const RoomScoreboard = lazy(() =>
+  import("./pages/RoomScoreboard").then((m) => ({ default: m.RoomScoreboard }))
+);
 
 function PageFallback() {
   return <Spinner className="mt-24" />;
@@ -109,6 +112,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <GameResult />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/scoreboard/:roomCode"
+          element={
+            <ProtectedRoute>
+              <RoomScoreboard />
             </ProtectedRoute>
           }
         />

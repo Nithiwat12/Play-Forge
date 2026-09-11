@@ -4,10 +4,22 @@ import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import type { HistoryEntry } from "../types";
 
+// Shaped after SpyfallResult (server/src/games/spyfall/SpyfallState.ts) -
+// the only game registered today, so it's fine to know its fields here
+// rather than fall back to a raw key/value dump. A future second game with
+// a differently-shaped `details` just renders as the generic summary-only
+// view below (see hasSpyfallShape).
+interface SpyfallResultDetails {
+  winner?: "SPY" | "NON_SPY";
+  reason?: string;
+  spyUsername?: string;
+  location?: string;
+  scores?: Record<string, number>;
+}
+
 interface ResultData {
   summary?: string;
-  winnerUserIds?: string[];
-  details?: Record<string, unknown>;
+  details?: SpyfallResultDetails;
 }
 
 export function GameResult() {
@@ -17,6 +29,15 @@ export function GameResult() {
 
   const entry = (location.state as { entry?: HistoryEntry } | null)?.entry;
   const result = entry?.resultData as ResultData | null | undefined;
+  const details = result?.details;
+  // spyUserId/winnerUserIds and the raw votes/voteTally arrays deliberately
+  // never surface here - a bare userId or vote array means nothing to a
+  // player looking back at a past round, only the names do.
+  const usernameByUserId = new Map((entry?.players ?? []).map((p) => [p.userId, p.username]));
+  const hasSpyfallShape = Boolean(details?.winner || details?.spyUsername || details?.scores);
+  const scoreEntries = Object.entries(details?.scores ?? {})
+    .filter(([, pts]) => pts > 0)
+    .sort(([, a], [, b]) => b - a);
 
   return (
     <div className="min-h-screen">
@@ -41,23 +62,61 @@ export function GameResult() {
               ห้อง {entry.roomCode} - {new Date(entry.startedAt).toLocaleString("th-TH")}
             </p>
 
-            {result?.summary && (
-              <p className="mt-4 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">
-                {result.summary}
-              </p>
-            )}
+            {hasSpyfallShape ? (
+              <>
+                {details?.winner && (
+                  <h2 className="mt-4 text-lg font-semibold text-white">
+                    {details.winner === "SPY" ? "🕵️ สปายชนะ!" : "🏆 กลุ่มผู้เล่นชนะ!"}
+                  </h2>
+                )}
 
-            {result?.details && (
-              <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                {Object.entries(result.details)
-                  .filter(([key]) => !["votes", "voteTally"].includes(key))
-                  .map(([key, value]) => (
-                    <div key={key}>
-                      <dt className="text-xs uppercase tracking-wide text-slate-500">{key}</dt>
-                      <dd className="text-slate-200">{String(value)}</dd>
-                    </div>
-                  ))}
-              </dl>
+                {(details?.reason ?? result?.summary) && (
+                  <p className="mt-2 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">
+                    {details?.reason ?? result?.summary}
+                  </p>
+                )}
+
+                {(details?.spyUsername || details?.location) && (
+                  <p className="mt-3 text-sm text-slate-400">
+                    {details?.spyUsername && (
+                      <>
+                        สปายคือ <span className="text-white">{details.spyUsername}</span>
+                      </>
+                    )}
+                    {details?.spyUsername && details?.location && " - "}
+                    {details?.location && (
+                      <>
+                        สถานที่คือ <span className="text-white">{details.location}</span>
+                      </>
+                    )}
+                  </p>
+                )}
+
+                {scoreEntries.length > 0 && (
+                  <div className="mt-4 rounded-lg bg-slate-900/60 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      คะแนนที่ได้รอบนี้
+                    </p>
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {scoreEntries.map(([userId, pts]) => (
+                        <li
+                          key={userId}
+                          className="flex items-center justify-between text-sm text-slate-300"
+                        >
+                          <span>{usernameByUserId.get(userId) ?? "ไม่ทราบชื่อ"}</span>
+                          <span className="font-semibold text-emerald-400">+{pts}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : (
+              result?.summary && (
+                <p className="mt-4 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">
+                  {result.summary}
+                </p>
+              )
             )}
 
             <Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>

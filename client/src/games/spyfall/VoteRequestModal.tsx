@@ -28,9 +28,10 @@ function useCountdownSeconds(targetMs: number): number {
 // Pops up for anyone who hasn't answered the currently-open "shall we open
 // the accusation vote?" poll yet (see publicState.votePoll) - identical for
 // everyone, the Spy included, since their response counts exactly like
-// anyone else's and isn't revealed. Majority accept opens the voting
-// screen; majority decline (or a timeout with no majority either way)
-// keeps the discussion going and starts a cooldown on the request button.
+// anyone else's and isn't revealed. At least half the room accepting opens
+// the voting screen right away (see requiredPollMajority server-side); at
+// least half declining (or a timeout with no side reaching that) keeps the
+// discussion going and starts a cooldown on the request button.
 export function VoteRequestModal({
   deadline,
   votesFor,
