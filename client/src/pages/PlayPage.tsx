@@ -261,6 +261,7 @@ export function PlayPage() {
   const handleConfirmDisband = () => { void leaveOrDisband("room:disband"); };
 
   async function handleContinueVote(wantsContinue: boolean) {
+    setContinueError(null);
     setContinuePoll((prev) => (prev ? { ...prev, myVote: wantsContinue } : prev));
     setIsSubmittingContinueVote(true);
     try {
@@ -384,6 +385,7 @@ export function PlayPage() {
         resolution={continueResolution}
         error={continueError}
         isSubmittingVote={isSubmittingContinueVote}
+        dismissAfterVote={room.game.slug === "spyfall"}
         isSkipping={isSkippingContinueDelay}
         onVote={(wantsContinue) => void handleContinueVote(wantsContinue)}
         onSkip={() => void handleSkipContinueDelay()}

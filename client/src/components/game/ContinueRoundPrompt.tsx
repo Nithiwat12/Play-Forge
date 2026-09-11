@@ -19,6 +19,7 @@ interface ContinueRoundPromptProps {
   resolution: ContinueResolutionInfo | null;
   error: string | null;
   isSubmittingVote: boolean;
+  dismissAfterVote?: boolean;
   isSkipping: boolean;
   onVote: (wantsContinue: boolean) => void;
   onSkip: () => void;
@@ -59,6 +60,7 @@ export function ContinueRoundPrompt({
   resolution,
   error,
   isSubmittingVote,
+  dismissAfterVote = false,
   isSkipping,
   onVote,
   onSkip,
@@ -70,6 +72,7 @@ export function ContinueRoundPrompt({
 
   if (poll) {
     const hasVoted = poll.myVote !== null;
+    if (dismissAfterVote && hasVoted && !isSubmittingVote) return null;
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
         <Card className="w-full max-w-sm">
@@ -83,6 +86,9 @@ export function ContinueRoundPrompt({
           <p className="mt-2 text-xs text-slate-500">
             ต่อ {poll.votesFor} · ไม่ต่อ {poll.votesAgainst} จาก {poll.totalPlayers} คน
           </p>
+          {dismissAfterVote && error && (
+            <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>
+          )}
           <div className="mt-6 flex flex-wrap justify-end gap-3">
             <Button
               variant="secondary"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "../../components/common/Card";
 import { Button } from "../../components/common/Button";
@@ -40,6 +40,7 @@ export function SpyfallGame({
   const [isAsking, setIsAsking] = useState(false);
   const askingRef = useRef(false);
   const alertedQuestionRef = useRef<string | null>(null);
+  const [questionNotice, setQuestionNotice] = useState<{ fromUsername: string; text: string } | null>(null);
   const [myVoteTargetId, setMyVoteTargetId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -190,10 +191,14 @@ export function SpyfallGame({
   }, [isMyAskTurn]);
 
   useEffect(() => {
+    if (!isMyQuestionToAnswer) {
+      setQuestionNotice(null);
+      return;
+    }
     const question = publicState.log.filter((entry) => entry.type === "question").slice(-1)[0];
-    if (!isMyQuestionToAnswer || !question || alertedQuestionRef.current === question.id) return;
+    if (!question || alertedQuestionRef.current === question.id) return;
     alertedQuestionRef.current = question.id;
-    window.alert(`${question.fromUsername} ถามคุณ${question.text ? `: ${question.text}` : " — ตอบด้วยเสียงได้เลย"}\nเมื่อตอบแล้ว กดถามต่อเพื่อเลือกคนถัดไป`);
+    setQuestionNotice({ fromUsername: question.fromUsername ?? "ผู้เล่น", text: question.text });
   }, [isMyQuestionToAnswer, publicState.log]);
 
   const runAction = useCallback(
@@ -596,6 +601,10 @@ export function SpyfallGame({
         />
       )}
 
+      {isMyQuestionToAnswer && questionNotice && (
+        <QuestionNoticeModal notice={questionNotice} onDismiss={() => setQuestionNotice(null)} />
+      )}
+
       {isMyAskTurn && isAskModalOpen && (
         <AskTargetModal
           players={publicState.players}
@@ -651,5 +660,52 @@ export function SpyfallGame({
         </div>
       )}
     </div>
+  );
+}
+
+function QuestionNoticeModal({ notice, onDismiss }: {
+  notice: { fromUsername: string; text: string };
+  onDismiss: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => { dialog?.close(); };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      onCancel={(event) => { event.preventDefault(); onDismiss(); }}
+      className="m-auto max-h-[85vh] w-[calc(100%_-_2rem)] max-w-md overflow-y-auto rounded-xl bg-transparent p-0 text-slate-100 backdrop:bg-black/70"
+    >
+      <Card className="border-brand-700 shadow-2xl">
+        <p className="text-sm font-semibold text-brand-400">ถึงตาคุณตอบแล้ว</p>
+        <h2 id={titleId} className="mt-2 break-words text-xl font-semibold text-white">
+          {notice.fromUsername} ถามคุณ
+        </h2>
+        <div id={descriptionId}>
+          {notice.text ? (
+            <p className="mt-4 whitespace-pre-wrap break-words rounded-lg bg-slate-900/70 p-4 text-base text-slate-200">
+              {notice.text}
+            </p>
+          ) : (
+            <p className="mt-3 text-base text-slate-300">ตอบคำถามด้วยเสียงได้เลย</p>
+          )}
+          <p className="mt-4 text-sm text-slate-400">
+            เมื่อตอบแล้ว กด “ถามต่อ” เพื่อเลือกคนถัดไป
+          </p>
+        </div>
+        <div className="mt-6 flex justify-end">
+          <Button autoFocus onClick={onDismiss}>เข้าใจแล้ว</Button>
+        </div>
+      </Card>
+    </dialog>
   );
 }
