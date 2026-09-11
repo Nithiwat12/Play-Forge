@@ -72,6 +72,10 @@ export interface SpyfallPublicState {
   voteCallCooldownUntil: number | null;
   // Set once the Spy has surrendered - null the rest of the time.
   revealedSpyUserId: string | null;
+  // Set only during a tie-extension "debate round" - the userIds who tied
+  // for the most votes last time, and the only legal accusation targets
+  // until the round resolves. Null the rest of the time.
+  debateCandidateIds: string[] | null;
 }
 
 // Only ever holds THIS browser's own player - never another player's role.

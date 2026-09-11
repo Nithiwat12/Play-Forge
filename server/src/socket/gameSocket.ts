@@ -29,7 +29,7 @@ const activeSessions = new Map<string, ActiveSessionInfo>();
 // tie, or nobody answering in time) sends the room back to its lobby.
 
 const CONTINUE_VOTE_TIMEOUT_MS = 30_000;
-const NEXT_ROUND_DELAY_MS = 10_000;
+const NEXT_ROUND_DELAY_MS = 15_000;
 
 interface ContinuePoll {
   votes: Map<string, boolean>; // userId -> wantsContinue

@@ -96,6 +96,17 @@ export function SpyfallGame({
     : 0;
   const isVoteCallOnCooldown = voteCallCooldownSecondsLeft > 0;
 
+  // A tie-extension "debate round" is IN_PROGRESS (discussion) with
+  // debateCandidateIds set - distinct from a normal discussion phase, and
+  // distinct from the later VOTING phase the same debateCandidateIds also
+  // narrows once voting reopens (see Voting's allowedTargetIds below).
+  const isDebateRound = publicState.phase === "IN_PROGRESS" && Boolean(publicState.debateCandidateIds);
+  // Announces a debate round once, keyed off its own timerEndsAt so a
+  // second/nested tie (a fresh debate round with a new deadline) shows its
+  // own announcement again rather than staying suppressed by an earlier one.
+  const [dismissedDebateTimerEndsAt, setDismissedDebateTimerEndsAt] = useState<number | null>(null);
+  const showDebateAnnouncement = isDebateRound && publicState.timerEndsAt !== dismissedDebateTimerEndsAt;
+
   const previousPhaseRef = useRef(publicState.phase);
   useEffect(() => {
     const isNewRound = previousPhaseRef.current === "FINISHED" && publicState.phase === "IN_PROGRESS";
@@ -133,6 +144,11 @@ export function SpyfallGame({
   const currentRoundNumber = scoreboard
     ? Math.min(scoreboard.roundsPlayed + (isFinished ? 0 : 1), scoreboard.numberOfRounds ?? Infinity)
     : 1;
+
+  const debateCandidateNames = useMemo(
+    () => (publicState.debateCandidateIds ?? []).map((id) => usernameByUserId.get(id) ?? "ไม่ทราบชื่อ"),
+    [publicState.debateCandidateIds, usernameByUserId]
+  );
 
   const revealedSpyUsername = publicState.revealedSpyUserId
     ? usernameByUserId.get(publicState.revealedSpyUserId) ?? "ไม่ทราบชื่อ"
@@ -360,6 +376,18 @@ export function SpyfallGame({
           </Card>
         )}
 
+        {isDebateRound && (
+          <Card className="border-amber-700">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-400">รอบดีเบท</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">
+              {debateCandidateNames.join(" กับ ")} คะแนนเท่ากัน
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              คุยกันต่อ แล้วกด "ขอเปิดโหวต" อีกครั้งเมื่อพร้อม - รอบนี้โหวตได้เฉพาะสองคนนี้เท่านั้น
+            </p>
+          </Card>
+        )}
+
         {!isFinished && !isVoting && !isRevealed && (
           <Card>
             <h2 className="text-sm font-semibold text-slate-300">ถามคำถาม</h2>
@@ -486,6 +514,7 @@ export function SpyfallGame({
                 selfUserId={selfUserId}
                 myVoteTargetId={myVoteTargetId}
                 onVote={handleVote}
+                allowedTargetIds={publicState.debateCandidateIds}
               />
             </div>
 
@@ -564,6 +593,27 @@ export function SpyfallGame({
           isSubmitting={isRespondingToPoll}
           onRespond={handleVoteCallResponse}
         />
+      )}
+
+      {showDebateAnnouncement && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <Card className="w-full max-w-sm border-amber-700">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-400">โหวตเสมอกัน!</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">เข้าสู่รอบดีเบท</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              {debateCandidateNames.join(" กับ ")} มีคะแนนเท่ากัน - มีเวลาพิเศษอีก 5 นาทีให้คุยกันต่อ
+              แล้วโหวตได้เฉพาะสองคนนี้เท่านั้น
+            </p>
+            <div className="mt-6 flex justify-end">
+              <Button
+                variant="primary"
+                onClick={() => setDismissedDebateTimerEndsAt(publicState.timerEndsAt)}
+              >
+                เข้าใจแล้ว
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );

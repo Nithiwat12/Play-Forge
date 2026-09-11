@@ -89,6 +89,11 @@ export interface SpyfallPublicState {
   // set it stays set (through REVEALED and into FINISHED) so the reveal
   // banner and result screen can both read it the same way.
   revealedSpyUserId: string | null;
+  // Set only during a tie-extension "debate round" - the userIds who tied
+  // for the most votes last time, and the only legal accusation targets
+  // until the round resolves one way or another. Null the rest of the
+  // time, including the very first (non-extended) vote.
+  debateCandidateIds: string[] | null;
 }
 
 // Only ever holds THIS browser's own player - never another player's role.

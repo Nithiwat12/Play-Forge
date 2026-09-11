@@ -74,6 +74,11 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   // handleCallVote request until this timestamp passes.
   private voteCallCooldownUntil: number | null = null;
   private tieExtensionsUsed = 0;
+  // Set only during a tie-extension "debate round" (see resolveByVotes) -
+  // narrows who can legally be accused to just the players who tied for
+  // the most votes last time, instead of the whole roster. Null the rest
+  // of the time (including the very first, non-extended vote).
+  private debateCandidateIds: Set<string> | null = null;
   private disconnected: Set<string> = new Set();
   private phase: SpyfallPhase = "IN_PROGRESS";
   // Set once the Spy surrenders (see handleSurrender) and never unset -
@@ -338,13 +343,35 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (!this.players.has(targetUserId)) {
       throw new GameActionError("ผู้เล่นที่จะโหวตไม่ได้อยู่ในเกมนี้");
     }
+    // During a tie-extension "debate round", only the players who tied for
+    // the most votes last time are legal targets - everyone else has
+    // already been cleared.
+    if (this.debateCandidateIds && !this.debateCandidateIds.has(targetUserId)) {
+      throw new GameActionError("รอบนี้เป็นรอบดีเบท โหวตได้เฉพาะคนที่คะแนนเท่ากันเท่านั้น");
+    }
 
     this.votes.set(voterId, targetUserId);
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
 
-    if (this.votes.size >= this.players.size) {
-      this.resolveByVotes("ทุกคนโหวตครบแล้ว");
+    if (this.votes.size >= this.players.size || this.hasLockedInMajority()) {
+      this.resolveByVotes("เสียงส่วนมากโหวตครบแล้ว");
     }
+  }
+
+  // True once a single target already holds strictly more than half of all
+  // players' votes - at that point no combination of however anyone still
+  // undecided ends up voting could change who has the most votes, so
+  // there's no reason to keep the round open waiting for full turnout.
+  private hasLockedInMajority(): boolean {
+    const counts = new Map<string, number>();
+    for (const targetUserId of this.votes.values()) {
+      counts.set(targetUserId, (counts.get(targetUserId) ?? 0) + 1);
+    }
+    const required = requiredPollMajority(this.players.size);
+    for (const count of counts.values()) {
+      if (count >= required) return true;
+    }
+    return false;
   }
 
   // The Spy's own "surrender" - a separate, Spy-only escape hatch from the
@@ -436,14 +463,21 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     const majority = resolveMajority(tally);
 
     // A genuine tie among 2+ people (not simply "nobody voted") gives the
-    // group a second chance instead of letting the Spy escape by default.
+    // group a second chance instead of letting the Spy escape by default -
+    // a "debate round" narrowed to just the tied suspects (see
+    // debateCandidateIds and handleVote), announced with a popup client-side
+    // (see SpyfallPublicState.debateCandidateIds) rather than only a log line.
     if (majority === null && this.votes.size > 0 && this.tieExtensionsUsed < SPYFALL_MAX_TIE_EXTENSIONS) {
       this.tieExtensionsUsed += 1;
+      const topCount = tally[0].count;
+      const tiedCandidates = tally.filter((t) => t.count === topCount);
+      this.debateCandidateIds = new Set(tiedCandidates.map((t) => t.targetUserId));
       this.votes.clear();
       this.phase = "IN_PROGRESS";
       this.beginTimer(SPYFALL_TIE_EXTENSION_SECONDS);
+      const tiedNames = tiedCandidates.map((t) => t.targetUsername).join(", ");
       this.appendSystemLog(
-        `โหวตเสมอกัน! ต่อเวลาพิเศษให้อีก ${SPYFALL_TIE_EXTENSION_SECONDS / 60} นาที`
+        `โหวตเสมอกันระหว่าง ${tiedNames}! เข้าสู่รอบดีเบท ต่อเวลาพิเศษให้อีก ${SPYFALL_TIE_EXTENSION_SECONDS / 60} นาที`
       );
       return;
     }
@@ -483,6 +517,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
 
   private conclude(result: Omit<SpyfallResult, "scores">): void {
     this.clearVotePoll();
+    this.debateCandidateIds = null;
     this.result = { ...result, scores: this.computeScores(result) };
     this.phase = "FINISHED";
     this.finished = true;
@@ -548,6 +583,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       votePoll: this.publicVotePoll(),
       voteCallCooldownUntil: this.voteCallCooldownUntil,
       revealedSpyUserId: this.revealed ? this.spyUserId : null,
+      debateCandidateIds: this.debateCandidateIds ? Array.from(this.debateCandidateIds) : null,
     };
   }
 

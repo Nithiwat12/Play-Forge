@@ -347,6 +347,7 @@ export function PlayPage() {
         isSkipping={isSkippingContinueDelay}
         onVote={(wantsContinue) => void handleContinueVote(wantsContinue)}
         onSkip={() => void handleSkipContinueDelay()}
+        onDismissResolution={() => setContinueResolution(null)}
         onDismissError={() => setContinueError(null)}
       />
     </div>

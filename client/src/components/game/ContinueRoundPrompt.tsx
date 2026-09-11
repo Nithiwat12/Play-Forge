@@ -22,6 +22,7 @@ interface ContinueRoundPromptProps {
   isSkipping: boolean;
   onVote: (wantsContinue: boolean) => void;
   onSkip: () => void;
+  onDismissResolution: () => void;
   onDismissError: () => void;
 }
 
@@ -61,6 +62,7 @@ export function ContinueRoundPrompt({
   isSkipping,
   onVote,
   onSkip,
+  onDismissResolution,
   onDismissError,
 }: ContinueRoundPromptProps) {
   const pollSecondsLeft = useCountdownSeconds(poll?.deadline ?? null);
@@ -114,9 +116,18 @@ export function ContinueRoundPrompt({
           <p className="text-sm text-slate-200">
             เริ่มรอบต่อไปใน {nextRoundSecondsLeft} วินาที...
           </p>
-          <Button variant="secondary" onClick={onSkip} isLoading={isSkipping}>
-            ข้าม
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={onSkip} isLoading={isSkipping}>
+              ข้าม
+            </Button>
+            <button
+              onClick={onDismissResolution}
+              aria-label="ปิด"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
         </Card>
       </div>
     );
