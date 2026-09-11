@@ -41,6 +41,13 @@ export interface SpyfallResult {
   spyUserId: string;
   spyUsername: string;
   location: string;
+  // The category tag of `location` (see locations.ts's SPYFALL_CATEGORIES) -
+  // carried in the opaque result so the game-agnostic continue-vote system
+  // can offer "same category again" for a PER_ROUND match without itself
+  // knowing anything about Spyfall locations. Null only if the round ended
+  // with no location ever assigned at all (see SpyfallGame.end's abnormal
+  // fallback path).
+  locationCategory: string | null;
   voteTally?: SpyfallVoteTally[];
   votes?: SpyfallRevealedVote[];
   // The location the Spy actually picked from the popup at guess time (set

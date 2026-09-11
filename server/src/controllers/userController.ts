@@ -27,4 +27,14 @@ export const userController = {
     await UserService.deleteHistoryEntryForUser(req.user.id, req.params.gameSessionId);
     res.status(200).json({ ok: true });
   }),
+
+  // Hides every round the user played in one room at once - see
+  // getHistoryForUser (now one card per room) and
+  // deleteHistoryForRoomForUser for why this differs from the single-round
+  // delete above.
+  deleteMyHistoryForRoom: asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) throw ApiError.unauthorized();
+    await UserService.deleteHistoryForRoomForUser(req.user.id, req.params.roomId);
+    res.status(200).json({ ok: true });
+  }),
 };

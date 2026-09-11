@@ -5,6 +5,7 @@ import type { PublicRoom } from "../types";
 
 export interface HistoryEntry {
   gameSessionId: string;
+  roomId: string;
   gameName: string;
   gameSlug: string;
   roomName: string;
@@ -13,6 +14,11 @@ export interface HistoryEntry {
   startedAt: string;
   finishedAt: string | null;
   resultData: unknown;
+  // How many of this room's rounds are still visible in this user's history
+  // (i.e. not individually hidden) - always >= 1 for an entry that made it
+  // into the returned list at all. Shown so a room that was actually played
+  // more than once doesn't look like a single one-off round.
+  roundsInHistory: number;
   // Every player who sat in the room this round was played in, so the
   // client can turn the userIds inside resultData.details (e.g. Spyfall's
   // per-player scores map) into actual names without a separate lookup -
@@ -22,9 +28,15 @@ export interface HistoryEntry {
 }
 
 export const UserService = {
-  // Returns every finished game session the user took part in (as a
-  // current or former room player), most recent first. Entirely
-  // game-agnostic: resultData is opaque JSON each game defines itself.
+  // Returns one entry per room the user has ever finished a round in, most
+  // recently played first - not one entry per round. A room reused across
+  // several rounds (the common case: replay a few times before leaving)
+  // would otherwise flood this list with near-identical cards that only
+  // differ by timestamp; the entry shown is just the room's most recent
+  // round, and GameResult.tsx already renders the whole match (every round
+  // played there) off the room code alone, so nothing is lost by not
+  // listing the others. Entirely game-agnostic: resultData is opaque JSON
+  // each game defines itself.
   async getHistoryForUser(userId: string): Promise<HistoryEntry[]> {
     const sessions = await prisma.gameSession.findMany({
       where: {
@@ -47,23 +59,36 @@ export const UserService = {
       take: 100,
     });
 
-    return sessions
+    const visible = sessions
       // A session the user has deleted from their own history is hidden
       // here only - the underlying row is kept intact for every other
       // player and for the room's scoreboard/round-count math.
-      .filter((session) => !session.history[0]?.hiddenForUserIds.includes(userId))
-      .map((session) => ({
-        gameSessionId: session.id,
-        gameName: session.game.name,
-        gameSlug: session.game.slug,
-        roomName: session.room.roomName,
-        roomCode: session.room.roomCode,
-        status: session.status,
-        startedAt: session.startedAt.toISOString(),
-        finishedAt: session.finishedAt ? session.finishedAt.toISOString() : null,
-        resultData: session.history[0]?.resultData ?? null,
-        players: session.room.players.map((p) => ({ userId: p.userId, username: p.user.username })),
-      }));
+      .filter((session) => !session.history[0]?.hiddenForUserIds.includes(userId));
+
+    // Already ordered most-recent-first, so the first session encountered
+    // for a given room is that room's latest round - exactly the one to
+    // represent it with.
+    const byRoomId = new Map<string, (typeof visible)[number]>();
+    const countByRoomId = new Map<string, number>();
+    for (const session of visible) {
+      if (!byRoomId.has(session.roomId)) byRoomId.set(session.roomId, session);
+      countByRoomId.set(session.roomId, (countByRoomId.get(session.roomId) ?? 0) + 1);
+    }
+
+    return Array.from(byRoomId.values()).map((session) => ({
+      gameSessionId: session.id,
+      roomId: session.roomId,
+      gameName: session.game.name,
+      gameSlug: session.game.slug,
+      roomName: session.room.roomName,
+      roomCode: session.room.roomCode,
+      status: session.status,
+      startedAt: session.startedAt.toISOString(),
+      finishedAt: session.finishedAt ? session.finishedAt.toISOString() : null,
+      resultData: session.history[0]?.resultData ?? null,
+      roundsInHistory: countByRoomId.get(session.roomId) ?? 1,
+      players: session.room.players.map((p) => ({ userId: p.userId, username: p.user.username })),
+    }));
   },
 
   // "Deletes" one history entry from just this user's own view. The
@@ -89,6 +114,31 @@ export const UserService = {
       where: { id: historyRow.id },
       data: { hiddenForUserIds: { push: userId } },
     });
+  },
+
+  // Same idea as deleteHistoryEntryForUser, but for every round the user
+  // has played in one room at once - since getHistoryForUser now shows a
+  // room as a single card (see above), "delete" on that card means "hide
+  // this whole room's history", not just its most recent round.
+  async deleteHistoryForRoomForUser(userId: string, roomId: string): Promise<void> {
+    const sessions = await prisma.gameSession.findMany({
+      where: { roomId, room: { players: { some: { userId } } } },
+      include: { history: true },
+    });
+    if (sessions.length === 0) throw ApiError.notFound("ไม่พบประวัติเกมนี้");
+
+    await Promise.all(
+      sessions
+        .map((session) => session.history[0])
+        .filter((historyRow): historyRow is NonNullable<typeof historyRow> => Boolean(historyRow))
+        .filter((historyRow) => !historyRow.hiddenForUserIds.includes(userId))
+        .map((historyRow) =>
+          prisma.gameHistory.update({
+            where: { id: historyRow.id },
+            data: { hiddenForUserIds: { push: userId } },
+          })
+        )
+    );
   },
 
   // Rooms this user is still an active seat in (not WAITING/FINISHED with

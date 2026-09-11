@@ -19,13 +19,23 @@ export const loginSchema = z.object({
   password: z.string().min(1, "กรุณากรอกรหัสผ่าน"),
 });
 
-export const roomSettingsSchema = z.object({
-  // Minutes, converted to seconds before being stored/used by the engine.
-  discussionMinutes: z.coerce.number().int().min(3).max(20).optional(),
-  // How many rounds this room's match will run for. Left unset means
-  // unlimited - the host can keep hitting "replay" indefinitely.
-  numberOfRounds: z.coerce.number().int().min(1).max(20).optional(),
-});
+export const roomSettingsSchema = z
+  .object({
+    // Minutes, converted to seconds before being stored/used by the engine.
+    discussionMinutes: z.coerce.number().int().min(3).max(20).optional(),
+    // How many rounds this room's match will run for. Left unset means
+    // unlimited - the host can keep hitting "replay" indefinitely.
+    numberOfRounds: z.coerce.number().int().min(1).max(20).optional(),
+    // How each round's location/topic gets picked - see RoomSettings.
+    categoryMode: z.enum(["RANDOM", "FIXED", "PER_ROUND"]).optional(),
+    // Required only for "FIXED" (checked below) - the id validation itself
+    // is left to the game engine, since only it knows what ids are valid.
+    category: z.string().trim().min(1).max(50).optional(),
+  })
+  .refine((data) => data.categoryMode !== "FIXED" || Boolean(data.category), {
+    message: "กรุณาเลือกหมวดหมู่เมื่อกำหนดหมวดหมู่คงที่",
+    path: ["category"],
+  });
 
 export const createRoomSchema = z.object({
   gameSlug: z.string().trim().min(1, "ต้องระบุ gameSlug"),

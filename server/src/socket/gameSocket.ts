@@ -6,6 +6,7 @@ import { GameSessionService } from "../services/GameSessionService";
 import { ScoreboardService } from "../services/ScoreboardService";
 import { withPresence, broadcastRoomClosed } from "./socketUtils";
 import type { AppServer, AppSocket } from "./socketAuth";
+import type { RoomSettings } from "../types";
 
 type Ack = (response: { ok: true } | { ok: false; error: string }) => void;
 const noopAck: Ack = () => {};
@@ -34,6 +35,12 @@ const NEXT_ROUND_DELAY_MS = 15_000;
 interface ContinuePoll {
   votes: Map<string, boolean>; // userId -> wantsContinue
   timeout: NodeJS.Timeout;
+  // The category the round that just ended was actually played in, read
+  // opaquely off that round's result (see SpyfallResult.locationCategory) -
+  // carried along so a "PER_ROUND" category match can offer the host
+  // "same category again" without this generic layer knowing what a
+  // category even is. Null for a game that doesn't report one.
+  lastCategory: string | null;
 }
 // roomId -> the in-progress "play again?" poll following a round that just ended.
 const continuePolls = new Map<string, ContinuePoll>();
@@ -46,6 +53,18 @@ interface PendingRoundStart {
 // still pending its NEXT_ROUND_DELAY_MS scoreboard-viewing window (or an
 // early skip).
 const pendingRoundStarts = new Map<string, PendingRoundStart>();
+
+interface PendingCategoryPick {
+  lastCategory: string | null;
+}
+// roomId -> a "PER_ROUND" category match waiting on the host to choose (or
+// repeat) the next round's category, opened right after a majority "yes"
+// on the continue-vote poll instead of going straight into the
+// NEXT_ROUND_DELAY_MS countdown (see resolveContinuePoll and the
+// "game:selectCategory" handler, which is what actually schedules that
+// countdown once the pick comes in). Entirely opaque here - this layer
+// never looks at what a "category" is, only whether one is pending.
+const pendingCategoryPicks = new Map<string, PendingCategoryPick>();
 
 // --- Match-complete auto-close ---------------------------------------------
 // Once a match has played out its full configured round count (see
@@ -94,6 +113,7 @@ function clearContinueState(roomId: string): void {
     clearTimeout(pending.timeout);
     pendingRoundStarts.delete(roomId);
   }
+  pendingCategoryPicks.delete(roomId);
   const disband = matchCompleteDisbands.get(roomId);
   if (disband) {
     clearTimeout(disband);
@@ -200,14 +220,21 @@ async function finalizeGame(io: AppServer, roomId: string) {
   } else if (scoreboard) {
     // More configured rounds remain (or the room has no round limit at
     // all) - offer everyone the chance to keep going instead of leaving it
-    // to the host alone.
-    await openContinuePoll(io, roomId);
+    // to the host alone. `result.details` is opaque game-specific JSON, but
+    // a `locationCategory` string on it (as Spyfall's does) is read purely
+    // as a passthrough value - never interpreted - to support "same
+    // category again" for a PER_ROUND match.
+    const lastCategory =
+      typeof (result.details as Record<string, unknown> | undefined)?.locationCategory === "string"
+        ? ((result.details as Record<string, unknown>).locationCategory as string)
+        : null;
+    await openContinuePoll(io, roomId, lastCategory);
   }
 }
 
 // --- Continue-vote system: implementation ---------------------------------
 
-async function openContinuePoll(io: AppServer, roomId: string): Promise<void> {
+async function openContinuePoll(io: AppServer, roomId: string, lastCategory: string | null = null): Promise<void> {
   if (continuePolls.has(roomId)) return; // shouldn't happen, but never stack polls
   const room = await RoomService.getRoomById(roomId).catch(() => null);
   // Nobody left to ask (or the room vanished) - nothing to poll for.
@@ -216,7 +243,7 @@ async function openContinuePoll(io: AppServer, roomId: string): Promise<void> {
   const timeout = setTimeout(() => {
     resolveContinuePoll(io, roomId).catch((err) => console.error("Failed to resolve continue poll:", err));
   }, CONTINUE_VOTE_TIMEOUT_MS);
-  continuePolls.set(roomId, { votes: new Map(), timeout });
+  continuePolls.set(roomId, { votes: new Map(), timeout, lastCategory });
 
   io.to(roomId).emit("game:continuePoll", {
     roomId,
@@ -246,6 +273,28 @@ async function resolveContinuePoll(io: AppServer, roomId: string, forcedResult?:
     return;
   }
 
+  // A "PER_ROUND" category match doesn't go straight into the next-round
+  // countdown - the host still needs to choose (or repeat) this match's
+  // next category first, and everyone waits on that (see
+  // pendingCategoryPicks and the "game:selectCategory" handler, which is
+  // what actually calls scheduleNextRoundStart once the pick comes in).
+  // Every other mode (RANDOM, FIXED, or no settings at all) behaves exactly
+  // as before - straight into the scoreboard-viewing countdown.
+  const room = await RoomService.getRoomById(roomId).catch(() => null);
+  if ((room?.settings as RoomSettings | null)?.categoryMode === "PER_ROUND") {
+    pendingCategoryPicks.set(roomId, { lastCategory: poll.lastCategory });
+    io.to(roomId).emit("game:categoryPending", { roomId, lastCategory: poll.lastCategory });
+    return;
+  }
+
+  scheduleNextRoundStart(io, roomId);
+}
+
+// Starts the NEXT_ROUND_DELAY_MS scoreboard-viewing countdown and tells
+// clients about it - shared by the normal (non-PER_ROUND) continue-vote
+// path above and by the "game:selectCategory" handler below, which reaches
+// the same point only after the host's category pick comes in.
+function scheduleNextRoundStart(io: AppServer, roomId: string): void {
   const nextRoundAt = Date.now() + NEXT_ROUND_DELAY_MS;
   const timeout = setTimeout(() => {
     pendingRoundStarts.delete(roomId);
@@ -355,6 +404,33 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
       ack({ ok: false, error: err instanceof Error ? err.message : "ข้ามไม่สำเร็จ" });
     }
   });
+
+  // Host-only: settles a "PER_ROUND" category match's pending pick (see
+  // pendingCategoryPicks) with either a freshly chosen category or the same
+  // one repeated from `lastCategory` - the client passes whichever the host
+  // did as one plain string either way, this handler doesn't distinguish.
+  // Only once this resolves does the usual scoreboard-viewing countdown to
+  // the next round actually start.
+  socket.on(
+    "game:selectCategory",
+    async ({ roomId, category }: { roomId: string; category: string }, ack: Ack = noopAck) => {
+      try {
+        if (!socket.rooms.has(roomId)) throw new Error("กรุณากลับเข้าห้องก่อนทำรายการ");
+        if (!pendingCategoryPicks.has(roomId)) throw new Error("ไม่มีการรอเลือกหมวดหมู่ในขณะนี้");
+        if (typeof category !== "string" || !category.trim()) throw new Error("กรุณาเลือกหมวดหมู่");
+
+        const room = await RoomService.getRoomById(roomId);
+        if (room.hostId !== userId) throw new Error("เฉพาะโฮสต์เท่านั้นที่เลือกหมวดหมู่รอบต่อไปได้");
+
+        await RoomService.setNextRoundCategory(roomId, category.trim());
+        pendingCategoryPicks.delete(roomId);
+        scheduleNextRoundStart(io, roomId);
+        ack({ ok: true });
+      } catch (err) {
+        ack({ ok: false, error: err instanceof Error ? err.message : "เลือกหมวดหมู่ไม่สำเร็จ" });
+      }
+    }
+  );
 
   // Generic action channel. `actionType` follows the namespaced pattern
   // (e.g. "spyfall:vote") but this file never interprets it - it is

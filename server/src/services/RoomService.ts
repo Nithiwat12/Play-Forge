@@ -139,13 +139,26 @@ export const RoomService = {
     // Minutes are friendlier for a host to type; the engine works in
     // seconds, so the conversion happens once, right at creation time.
     const settings: RoomSettings | undefined =
-      input.settings?.discussionMinutes || input.settings?.numberOfRounds
+      input.settings?.discussionMinutes ||
+      input.settings?.numberOfRounds ||
+      input.settings?.categoryMode
         ? {
             ...(input.settings.discussionMinutes
               ? { discussionSeconds: input.settings.discussionMinutes * 60 }
               : {}),
             ...(input.settings.numberOfRounds
               ? { numberOfRounds: input.settings.numberOfRounds }
+              : {}),
+            // "RANDOM" is the implicit default (no restriction) - only
+            // persist a mode when it actually changes behavior, and only
+            // carry `category` along for the modes that use it at all.
+            ...(input.settings.categoryMode && input.settings.categoryMode !== "RANDOM"
+              ? {
+                  categoryMode: input.settings.categoryMode,
+                  ...(input.settings.categoryMode === "FIXED" && input.settings.category
+                    ? { category: input.settings.category }
+                    : {}),
+                }
               : {}),
           }
         : undefined;
@@ -345,6 +358,23 @@ export const RoomService = {
     await prisma.roomPlayer.updateMany({
       where: { roomId, leftAt: null },
       data: { isReady: false },
+    });
+  },
+
+  // Persists the host's category pick for the room's next round, in a
+  // "PER_ROUND" category-mode match (see gameSocket's pendingCategoryPicks
+  // and the "game:selectCategory" handler). Deliberately just merges into
+  // the existing settings JSON rather than replacing it - reuses the exact
+  // same `settings.category` field a "FIXED"-mode room sets once at
+  // creation, so SpyfallGame.getLocationPool never needs to know which mode
+  // put the value there.
+  async setNextRoundCategory(roomId: string, category: string): Promise<void> {
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { settings: true } });
+    if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
+    const settings = (room.settings as RoomSettings | null) ?? {};
+    await prisma.room.update({
+      where: { id: roomId },
+      data: { settings: { ...settings, category } as any },
     });
   },
 

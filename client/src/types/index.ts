@@ -33,6 +33,14 @@ export interface RoomPlayer {
 export interface RoomSettings {
   discussionSeconds?: number;
   numberOfRounds?: number;
+  // How the location/topic for each round gets picked - see CreateRoom's
+  // category section and games/spyfall/categories.ts for the id/label list.
+  // Unset/"RANDOM" = no restriction. "FIXED" = the whole match is
+  // restricted to `category`. "PER_ROUND" = restricted too, but the host
+  // re-picks (or repeats) `category` before each round after the first,
+  // via the "game:categoryPending"/"game:selectCategory" socket exchange.
+  categoryMode?: "RANDOM" | "FIXED" | "PER_ROUND";
+  category?: string;
 }
 
 export interface ScoreboardTotal {
@@ -81,6 +89,10 @@ export interface Room {
 
 export interface HistoryEntry {
   gameSessionId: string;
+  // One entry per room now (see server UserService.getHistoryForUser) -
+  // this is what HistoryPage's delete button targets, hiding every round
+  // played in the room at once rather than just the round shown here.
+  roomId: string;
   gameName: string;
   gameSlug: string;
   roomName: string;
@@ -89,6 +101,9 @@ export interface HistoryEntry {
   startedAt: string;
   finishedAt: string | null;
   resultData: unknown;
+  // How many of this room's rounds are still in the user's history - only
+  // ever > 1 when the room was actually replayed a few times.
+  roundsInHistory: number;
   // Every player who sat in the room this round was played in - lets
   // GameResult.tsx resolve userIds inside resultData.details (e.g.
   // Spyfall's per-player scores map) into actual names.

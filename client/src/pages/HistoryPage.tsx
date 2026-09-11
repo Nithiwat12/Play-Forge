@@ -47,12 +47,19 @@ export function HistoryPage() {
     });
   }
 
-  async function handleDeleteHistory(gameSessionId: string) {
-    if (!window.confirm("ลบประวัติเกมรอบนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
-    setDeletingId(gameSessionId);
+  // Each card now represents a whole room (see server UserService's
+  // getHistoryForUser), so deleting it removes every round played there
+  // from this user's history at once, not just the one round shown.
+  async function handleDeleteHistory(entry: HistoryEntry) {
+    const confirmMessage =
+      entry.roundsInHistory > 1
+        ? `ลบประวัติเกมนี้ทั้งหมด (${entry.roundsInHistory} รอบ)? การกระทำนี้ไม่สามารถย้อนกลับได้`
+        : "ลบประวัติเกมนี้? การกระทำนี้ไม่สามารถย้อนกลับได้";
+    if (!window.confirm(confirmMessage)) return;
+    setDeletingId(entry.gameSessionId);
     try {
-      await api.delete(`/users/me/history/${gameSessionId}`);
-      setHistory((prev) => prev.filter((entry) => entry.gameSessionId !== gameSessionId));
+      await api.delete(`/users/me/history/room/${entry.roomId}`);
+      setHistory((prev) => prev.filter((e) => e.roomId !== entry.roomId));
     } catch (err) {
       setError(extractErrorMessage(err, "ลบประวัติเกมไม่สำเร็จ"));
     } finally {
@@ -170,6 +177,7 @@ export function HistoryPage() {
                       </p>
                       <p className="text-xs text-slate-500">
                         ห้อง {entry.roomCode} - {new Date(entry.startedAt).toLocaleString("th-TH")}
+                        {entry.roundsInHistory > 1 && ` · เล่น ${entry.roundsInHistory} รอบ`}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -193,7 +201,7 @@ export function HistoryPage() {
                         disabled={deletingId === entry.gameSessionId}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteHistory(entry.gameSessionId);
+                          handleDeleteHistory(entry);
                         }}
                         className="rounded px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-950 hover:text-red-400 disabled:opacity-50"
                       >

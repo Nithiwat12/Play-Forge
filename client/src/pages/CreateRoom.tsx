@@ -7,7 +7,10 @@ import { Input } from "../components/common/Input";
 import { Button } from "../components/common/Button";
 import { api, extractErrorMessage } from "../services/api";
 import { useRoomStore } from "../stores/roomStore";
-import type { Room } from "../types";
+import { SPYFALL_CATEGORIES } from "../games/spyfall/categories";
+import type { Room, RoomSettings } from "../types";
+
+type CategoryMode = NonNullable<RoomSettings["categoryMode"]>;
 
 export function CreateRoom() {
   const { gameSlug } = useParams<{ gameSlug: string }>();
@@ -21,6 +24,8 @@ export function CreateRoom() {
   const [discussionMinutes, setDiscussionMinutes] = useState(8);
   const [limitRounds, setLimitRounds] = useState(false);
   const [numberOfRounds, setNumberOfRounds] = useState(3);
+  const [categoryMode, setCategoryMode] = useState<CategoryMode>("RANDOM");
+  const [category, setCategory] = useState(SPYFALL_CATEGORIES[0].id);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -38,6 +43,8 @@ export function CreateRoom() {
         settings: {
           ...(discussionMinutes ? { discussionMinutes } : {}),
           ...(limitRounds ? { numberOfRounds } : {}),
+          categoryMode,
+          ...(categoryMode === "FIXED" ? { category } : {}),
         },
       });
       setRoom(data.room);
@@ -117,6 +124,44 @@ export function CreateRoom() {
                 onChange={(e) => setNumberOfRounds(Number(e.target.value))}
               />
             )}
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="categoryMode" className="text-sm text-slate-300">
+                หมวดหมู่สถานที่
+              </label>
+              <select
+                id="categoryMode"
+                value={categoryMode}
+                onChange={(e) => setCategoryMode(e.target.value as CategoryMode)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
+              >
+                <option value="RANDOM">สุ่มทุกรอบ (ทุกหมวดหมู่)</option>
+                <option value="FIXED">เลือกหมวดหมู่คงที่ (ใช้ตลอดทั้งแมตช์)</option>
+                <option value="PER_ROUND">ให้หัวหน้าห้องเลือกหมวดหมู่ก่อนเริ่มแต่ละรอบ</option>
+              </select>
+
+              {categoryMode === "FIXED" && (
+                <select
+                  id="category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
+                >
+                  {SPYFALL_CATEGORIES.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {categoryMode === "PER_ROUND" && (
+                <p className="text-xs text-slate-500">
+                  รอบแรกจะสุ่มหมวดหมู่ก่อน จากนั้นก่อนเริ่มรอบถัดไปทุกครั้ง หัวหน้าห้องจะเลือกหมวดหมู่ใหม่
+                  หรือเล่นหมวดเดิมก็ได้ - ผู้เล่นคนอื่นต้องรอจนกว่าหัวหน้าห้องจะเลือกเสร็จ
+                </p>
+              )}
+            </div>
 
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input

@@ -7,6 +7,8 @@ import { Button } from "../components/common/Button";
 import { ConfirmModal } from "../components/common/ConfirmModal";
 import { ContinueRoundPrompt } from "../components/game/ContinueRoundPrompt";
 import type { ContinuePollInfo, ContinueResolutionInfo } from "../components/game/ContinueRoundPrompt";
+import { CategoryPickerPrompt } from "../games/spyfall/CategoryPickerPrompt";
+import type { CategoryPendingInfo } from "../games/spyfall/CategoryPickerPrompt";
 import { subscribeToRoom } from "../services/roomConnection";
 import { connectSocket, emitWithAck } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
@@ -40,6 +42,13 @@ export function PlayPage() {
   const [isSubmittingContinueVote, setIsSubmittingContinueVote] = useState(false);
   const [isSkippingContinueDelay, setIsSkippingContinueDelay] = useState(false);
 
+  // A "PER_ROUND" category-mode room's extra step, inserted between a
+  // majority "yes" on the continue-vote poll and the usual next-round
+  // countdown - see CategoryPickerPrompt. Null for every other mode.
+  const [categoryPending, setCategoryPending] = useState<CategoryPendingInfo | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [isSelectingCategory, setIsSelectingCategory] = useState(false);
+
   // Set once the match has played out its full round count (see gameSocket's
   // finalizeGame) - the server auto-closes the room at this same deadline,
   // so this is purely for showing a matching countdown on this end.
@@ -54,6 +63,8 @@ export function PlayPage() {
     setContinuePoll(null);
     setContinueResolution(null);
     setContinueError(null);
+    setCategoryPending(null);
+    setCategoryError(null);
     setMatchClosesAt(null);
     const socket = connectSocket();
     let cancelled = false;
@@ -79,6 +90,7 @@ export function PlayPage() {
       // stale now and needs to go, whether the delay ran out on its own or
       // someone hit "ข้าม" to skip it.
       setContinueResolution(null);
+      setCategoryPending(null);
     }
 
     function handleGameEnd(payload: { scoreboard?: Scoreboard | null; closesAt?: number | null }) {
@@ -137,6 +149,7 @@ export function PlayPage() {
     }) {
       if (payload.roomId !== useRoomStore.getState().room?.id) return;
       setContinuePoll(null);
+      setCategoryPending(null);
       if (payload.willContinue && payload.nextRoundAt != null) {
         setContinueResolution({ nextRoundAt: payload.nextRoundAt });
       } else {
@@ -153,6 +166,18 @@ export function PlayPage() {
       setContinueError(payload.error);
     }
 
+    // Only fires for a "PER_ROUND" category-mode room - see
+    // CategoryPickerPrompt. Takes over from the continue-vote poll once
+    // everyone's agreed to continue, and itself hands off to
+    // handleContinueResolved once the host actually picks a category.
+    function handleCategoryPending(payload: { roomId: string; lastCategory: string | null }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      setContinuePoll(null);
+      setContinueError(null);
+      setCategoryError(null);
+      setCategoryPending({ lastCategory: payload.lastCategory });
+    }
+
     socket.on("game:state", handleGameState);
     socket.on("game:end", handleGameEnd);
     socket.on("room:update", handleRoomUpdate);
@@ -161,6 +186,7 @@ export function PlayPage() {
     socket.on("game:continueUpdate", handleContinueUpdate);
     socket.on("game:continueResolved", handleContinueResolved);
     socket.on("game:continueFailed", handleContinueFailed);
+    socket.on("game:categoryPending", handleCategoryPending);
     const stopJoining = subscribeToRoom(socket, roomCode,
       (response) => {
         setError(null);
@@ -196,6 +222,7 @@ export function PlayPage() {
       socket.off("game:continueUpdate", handleContinueUpdate);
       socket.off("game:continueResolved", handleContinueResolved);
       socket.off("game:continueFailed", handleContinueFailed);
+      socket.off("game:categoryPending", handleCategoryPending);
       clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -268,6 +295,18 @@ export function PlayPage() {
       setContinueError(extractErrorMessage(err));
     } finally {
       setIsSkippingContinueDelay(false);
+    }
+  }
+
+  async function handleSelectCategory(category: string) {
+    setIsSelectingCategory(true);
+    try {
+      const response = await emitWithAck("game:selectCategory", { roomId, category });
+      if (!response.ok) setCategoryError(response.error);
+    } catch (err) {
+      setCategoryError(extractErrorMessage(err));
+    } finally {
+      setIsSelectingCategory(false);
     }
   }
 
@@ -360,6 +399,14 @@ export function PlayPage() {
         onSkip={() => void handleSkipContinueDelay()}
         onDismissResolution={() => setContinueResolution(null)}
         onDismissError={() => setContinueError(null)}
+      />
+      <CategoryPickerPrompt
+        pending={categoryPending}
+        isHost={isHost}
+        isSubmitting={isSelectingCategory}
+        error={categoryError}
+        onSelect={(category) => void handleSelectCategory(category)}
+        onDismissError={() => setCategoryError(null)}
       />
     </div>
   );

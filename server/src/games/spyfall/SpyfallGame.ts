@@ -51,6 +51,17 @@ const MAX_DISCUSSION_SECONDS = 20 * 60;
 // gets the classic defaults.
 export interface SpyfallConfig {
   discussionSeconds?: number;
+  // How the location for each round gets picked - see locations.ts's
+  // SPYFALL_CATEGORIES. Undefined/"RANDOM" = pick from every location, no
+  // restriction. "FIXED" restricts every round to `category`. "PER_ROUND"
+  // restricts THIS round to `category` too - the host re-chooses (or
+  // repeats) it before each round after the first via the game-agnostic
+  // continue-vote system (see gameSocket's pendingCategoryPicks), which
+  // simply persists its pick onto Room.settings.category before the next
+  // round is started - so from this engine's point of view PER_ROUND and
+  // FIXED behave identically, it's just a filter on the pool.
+  categoryMode?: "RANDOM" | "FIXED" | "PER_ROUND";
+  category?: string;
 }
 
 /**
@@ -104,7 +115,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     }
 
     this.discussionSeconds = this.resolveDiscussionSeconds();
-    this.location = shuffle(SPYFALL_LOCATIONS)[0];
+    this.location = shuffle(this.getLocationPool())[0];
 
     const playerIds = this.getPlayers().map((p) => p.userId);
     this.spyUserId = playerIds[Math.floor(Math.random() * playerIds.length)];
@@ -116,6 +127,21 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.beginTimer(this.discussionSeconds);
 
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+  }
+
+  // Narrows the location pool to one category when configured (FIXED, or
+  // PER_ROUND once a category has actually been chosen for this round) -
+  // both are just "restrict to this category", the difference in how that
+  // category got set lives entirely outside this engine. Falls back to the
+  // full pool for RANDOM, an unset category, or a category id that matches
+  // nothing (e.g. stale/misconfigured settings) - a match should never be
+  // able to end up with zero possible locations.
+  private getLocationPool(): SpyfallLocation[] {
+    const usesCategory = this.config.categoryMode === "FIXED" || this.config.categoryMode === "PER_ROUND";
+    const category = usesCategory ? this.config.category : undefined;
+    if (!category) return SPYFALL_LOCATIONS;
+    const filtered = SPYFALL_LOCATIONS.filter((l) => l.category === category);
+    return filtered.length > 0 ? filtered : SPYFALL_LOCATIONS;
   }
 
   private resolveDiscussionSeconds(): number {
@@ -426,6 +452,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       spyUserId: this.spyUserId!,
       spyUsername: this.players.get(this.spyUserId!)?.username ?? "ไม่ทราบชื่อ",
       location: this.location!.name,
+      locationCategory: this.location!.category,
       spyGuessedLocation: guessedLocation,
       spyGuessCorrect: correct,
     });
@@ -457,6 +484,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       spyUserId: this.spyUserId!,
       spyUsername,
       location: this.location!.name,
+      locationCategory: this.location!.category,
     });
   }
 
@@ -513,6 +541,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       spyUserId: this.spyUserId!,
       spyUsername: usernameByUserId.get(this.spyUserId!) ?? "ไม่ทราบชื่อ",
       location: this.location!.name,
+      locationCategory: this.location!.category,
       voteTally: tally,
       votes,
     });
@@ -643,6 +672,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
           ? this.players.get(this.spyUserId)?.username ?? "ไม่ทราบชื่อ"
           : "ไม่ทราบชื่อ",
         location: this.location?.name ?? "ไม่ทราบชื่อ",
+        locationCategory: this.location?.category ?? null,
       });
     }
 
