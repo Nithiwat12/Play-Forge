@@ -25,7 +25,7 @@ export function CreateRoom() {
   const [limitRounds, setLimitRounds] = useState(false);
   const [numberOfRounds, setNumberOfRounds] = useState(3);
   const [categoryMode, setCategoryMode] = useState<CategoryMode>("RANDOM");
-  const [category, setCategory] = useState(SPYFALL_CATEGORIES[0].id);
+  const [category, setCategory] = useState<string>(SPYFALL_CATEGORIES[0].id);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
