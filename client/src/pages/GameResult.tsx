@@ -97,17 +97,28 @@ export function GameResult() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                       คะแนนที่ได้รอบนี้
                     </p>
-                    <ul className="mt-2 flex flex-col gap-1">
-                      {scoreEntries.map(([userId, pts]) => (
-                        <li
-                          key={userId}
-                          className="flex items-center justify-between text-sm text-slate-300"
-                        >
-                          <span>{usernameByUserId.get(userId) ?? "ไม่ทราบชื่อ"}</span>
-                          <span className="font-semibold text-emerald-400">+{pts}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="w-full min-w-max text-left text-sm">
+                        <thead>
+                          <tr className="text-xs uppercase text-slate-500">
+                            <th className="pb-2 pr-3">ผู้เล่น</th>
+                            <th className="pb-2 pl-3 text-right">คะแนน</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scoreEntries.map(([userId, pts]) => (
+                            <tr key={userId} className="border-t border-slate-800">
+                              <td className="py-2 pr-3 text-slate-200">
+                                {usernameByUserId.get(userId) ?? "ไม่ทราบชื่อ"}
+                              </td>
+                              <td className="py-2 pl-3 text-right font-semibold text-emerald-400">
+                                +{pts}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </>
@@ -119,9 +130,21 @@ export function GameResult() {
               )
             )}
 
-            <Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>
-              กลับไปที่ประวัติเกม
-            </Button>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Button
+                variant="primary"
+                onClick={() =>
+                  navigate(`/scoreboard/${entry.roomCode}`, {
+                    state: { header: { gameName: entry.gameName, roomName: entry.roomName } },
+                  })
+                }
+              >
+                ดูตารางคะแนนรวมทั้งแมตช์
+              </Button>
+              <Button variant="secondary" onClick={() => navigate("/history")}>
+                กลับไปที่ประวัติเกม
+              </Button>
+            </div>
           </Card>
         )}
       </main>

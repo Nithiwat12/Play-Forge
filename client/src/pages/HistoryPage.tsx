@@ -42,7 +42,9 @@ export function HistoryPage() {
   // straight to the read-only scoreboard view instead, which works
   // regardless of the room's status.
   function handleViewScoreboard(room: Room) {
-    navigate(`/scoreboard/${room.roomCode}`, { state: { room } });
+    navigate(`/scoreboard/${room.roomCode}`, {
+      state: { header: { gameName: room.game.name, roomName: room.roomName } },
+    });
   }
 
   async function handleDeleteHistory(gameSessionId: string) {

@@ -6,7 +6,7 @@ import { Button } from "../components/common/Button";
 import { Spinner } from "../components/common/Spinner";
 import { ScoreboardTable } from "../components/game/ScoreboardTable";
 import { api, extractErrorMessage } from "../services/api";
-import type { Room, Scoreboard } from "../types";
+import type { Scoreboard } from "../types";
 
 // A pure read-only view of a room's final match scoreboard - reached from
 // the History page's "ดูตารางคะแนน" for a room whose match has already
@@ -24,10 +24,12 @@ export function RoomScoreboard() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Optional - History page already has the room's name/game from its own
-  // list, so it's passed along to avoid a redundant lookup. Falls back to
-  // just the room code if opened without it (e.g. a direct link).
-  const room = (location.state as { room?: Room } | null)?.room;
+  // Optional - the page that linked here (History's room list, or a single
+  // round's result page) already has the room/game name from its own data,
+  // so it's passed along to avoid a redundant lookup. Falls back to just
+  // the room code if opened without it (e.g. a direct link). roomCode
+  // itself always comes from the URL, never from this state.
+  const header = (location.state as { header?: { gameName?: string; roomName?: string } } | null)?.header;
 
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,9 +61,9 @@ export function RoomScoreboard() {
       <Navbar />
       <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
         <Card>
-          <p className="text-sm text-slate-400">{room?.game.name ?? "ตารางคะแนน"}</p>
-          <h1 className="text-xl font-semibold text-white">{room?.roomName ?? `ห้อง ${roomCode}`}</h1>
-          {room && <p className="mt-1 text-xs text-slate-500">ห้อง {room.roomCode}</p>}
+          <p className="text-sm text-slate-400">{header?.gameName ?? "ตารางคะแนน"}</p>
+          <h1 className="text-xl font-semibold text-white">{header?.roomName ?? `ห้อง ${roomCode}`}</h1>
+          <p className="mt-1 text-xs text-slate-500">ห้อง {roomCode}</p>
 
           {isLoading && <Spinner className="mt-8" />}
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
