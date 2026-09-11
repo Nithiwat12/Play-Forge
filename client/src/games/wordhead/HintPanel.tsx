@@ -13,6 +13,13 @@ interface HintPanelProps {
   isMarkingWrong: boolean;
   onMarkCorrect: () => void;
   onMarkWrong: () => void;
+  // Winning needs EVERY currently-connected non-turn player to vote ตอบถูก
+  // (unanimous) - see WordHeadGame.eligibleVoterIds. selfVote lets this
+  // viewer's own button reflect that they've already voted, instead of
+  // looking like nothing happened while waiting on everyone else.
+  votesCorrectCount: number;
+  votesNeeded: number;
+  selfVote: "correct" | "wrong" | null;
 }
 
 // Shown to everyone EXCEPT the current up player. The "ให้คำใบ้" button
@@ -36,6 +43,9 @@ export function HintPanel({
   isMarkingWrong,
   onMarkCorrect,
   onMarkWrong,
+  votesCorrectCount,
+  votesNeeded,
+  selfVote,
 }: HintPanelProps) {
   const [hintText, setHintText] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -75,15 +85,16 @@ export function HintPanel({
 
       <div className="mt-4 border-t border-slate-800 pt-3">
         <p className="text-xs text-slate-500">{currentTurnUsername} ตอบถูกไหม? (ไม่ว่าจะพิมพ์หรือพูดออกเสียง)</p>
+        <p className="mt-1 text-[11px] text-slate-600">ต้องกด "ตอบถูก" ให้ครบทุกคนถึงจะนับเป็นชนะ</p>
         <div className="mt-2 flex gap-2">
           <Button
             variant="secondary"
             className="flex-1 border border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50"
             onClick={onMarkCorrect}
             isLoading={isMarkingCorrect}
-            disabled={isMarkingWrong}
+            disabled={isMarkingWrong || selfVote === "correct"}
           >
-            ✅ ตอบถูก
+            {selfVote === "correct" ? `✅ กดแล้ว (${votesCorrectCount}/${votesNeeded})` : "✅ ตอบถูก"}
           </Button>
           <Button
             variant="secondary"

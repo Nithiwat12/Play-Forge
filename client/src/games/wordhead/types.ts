@@ -38,6 +38,11 @@ export interface WordHeadPendingGuess {
   submittedAt: number;
 }
 
+// userId -> their vote on the up player's CURRENT answer attempt. Winning
+// needs unanimous "correct" from everyone connected except the up player -
+// a single "wrong" vote fails the attempt immediately instead.
+export type WordHeadGuessVotes = Record<string, "correct" | "wrong">;
+
 export interface WordHeadResult {
   summary: string;
   // userId -> seconds taken. LOWER is better (opposite of every other
@@ -60,6 +65,7 @@ export interface WordHeadPublicState {
   wordCategory: string | null;
   result: WordHeadResult | null;
   pendingGuess: WordHeadPendingGuess | null;
+  guessVotes: WordHeadGuessVotes;
 }
 
 export interface WordHeadPrivateState {

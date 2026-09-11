@@ -51,6 +51,15 @@ export interface WordHeadPendingGuess {
   submittedAt: number;
 }
 
+// One entry per player who has cast a ถูก/ผิด vote on the up player's
+// CURRENT answer attempt (whichever is more recent: a typed pendingGuess,
+// or just something they said out loud - both use the same tally). Voting
+// requires unanimous "correct" from everyone eligible (see
+// WordHeadGame.eligibleVoterIds) to actually win the turn; a single
+// "wrong" vote fails the attempt immediately and clears this map, rather
+// than waiting for everyone else to also vote wrong.
+export type WordHeadGuessVotes = Record<string, "correct" | "wrong">;
+
 export interface WordHeadResult {
   summary: string;
   // userId -> seconds taken (LOWER is better - see the file-level note
@@ -82,6 +91,11 @@ export interface WordHeadPublicState {
   // client uses this to pop up a judging prompt for everyone except the
   // guesser themselves.
   pendingGuess: WordHeadPendingGuess | null;
+  // Votes cast so far on the current answer attempt - see
+  // WordHeadGuessVotes. Reset (to {}) at the start of every turn, whenever
+  // a fresh typed guess replaces pendingGuess, and immediately after any
+  // single "wrong" vote or after unanimous "correct" resolves the turn.
+  guessVotes: WordHeadGuessVotes;
 }
 
 // Only ever holds THIS browser's own view.

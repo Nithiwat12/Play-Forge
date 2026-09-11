@@ -7,6 +7,7 @@ import {
   type WordHeadConfig,
   type WordHeadLogEntry,
   type WordHeadPendingGuess,
+  type WordHeadGuessVotes,
   type WordHeadPhase,
   type WordHeadPublicState,
   type WordHeadPrivateState,
@@ -61,6 +62,10 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   // typed guess replacing it, or the turn moving on) - see WordHeadState's
   // note on why this is safe to show to the whole room.
   private pendingGuess: WordHeadPendingGuess | null = null;
+  // userId -> their vote on the CURRENT answer attempt. Requires unanimous
+  // "correct" from everyone in eligibleVoterIds() to win the turn - see
+  // handleMarkCorrect/handleMarkWrong.
+  private guessVotes: Map<string, "correct" | "wrong"> = new Map();
 
   private hasGone: Set<string> = new Set();
   private guessedCorrectly: Set<string> = new Set();
@@ -204,7 +209,10 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     const guesser = this.players.get(userId)!;
     const text = guessText.slice(0, WORDHEAD_MAX_TEXT_LENGTH);
 
+    // A fresh attempt needs fresh unanimous consent - old votes were about
+    // whatever was said/typed before this.
     this.pendingGuess = { text, submittedAt: Date.now() };
+    this.guessVotes.clear();
     this.appendLog({
       id: randomUUID(),
       type: "guess",
@@ -215,9 +223,21 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     });
   }
 
-  // Anyone except the up player can call this - either resolving a typed
+  // Everyone currently connected except the up player has to independently
+  // press ตอบถูก before it counts as a win - one dissenting ตอบผิด fails
+  // the whole attempt immediately (see handleMarkWrong) rather than
+  // needing everyone to agree it's wrong too.
+  private eligibleVoterIds(): string[] {
+    return this.getPlayers()
+      .map((p) => p.userId)
+      .filter((id) => id !== this.currentTurnUserId && !this.disconnected.has(id));
+  }
+
+  // Anyone except the up player can call this - either voting on a typed
   // pendingGuess, or (if there isn't one) confirming an answer the up
-  // player just said out loud.
+  // player just said out loud. Only resolves the turn once every eligible
+  // voter has voted "correct" - otherwise it just records this one vote
+  // and waits for the rest.
   private handleMarkCorrect(judgeUserId: string): void {
     if (this.phase !== "TURN" || !this.currentTurnUserId) {
       throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
@@ -226,22 +246,36 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       throw new GameActionError("คุณกดยืนยันคำตอบตัวเองไม่ได้");
     }
 
-    const judge = this.players.get(judgeUserId)!;
+    this.guessVotes.set(judgeUserId, "correct");
+
+    const eligible = this.eligibleVoterIds();
+    const votedCorrect = eligible.filter((id) => this.guessVotes.get(id) === "correct");
+    if (eligible.length === 0 || votedCorrect.length < eligible.length) {
+      const judge = this.players.get(judgeUserId)!;
+      this.appendSystemLog(
+        `✅ ${judge.username} กดว่าถูก (${votedCorrect.length}/${eligible.length} คนแล้ว - ต้องกดครบทุกคนถึงจะชนะ)`
+      );
+      return;
+    }
+
     const guesser = this.players.get(this.currentTurnUserId)!;
     const word = this.currentWord;
     const guessedText = this.pendingGuess?.text;
     this.pendingGuess = null;
+    this.guessVotes.clear();
 
     const elapsedSeconds = this.finishTurn(this.currentTurnUserId, true);
     this.appendSystemLog(
-      `${judge.username} กดว่า ${guesser.username} ตอบถูก${guessedText ? ` ("${guessedText}")` : ""}! คำคือ "${word}" (ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที)`
+      `ทุกคนยืนยันตรงกันว่า ${guesser.username} ตอบถูก${guessedText ? ` ("${guessedText}")` : ""}! คำคือ "${word}" (ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที)`
     );
     this.advanceTurn();
   }
 
-  // Doesn't end the turn or change anything about the score - the
-  // stopwatch just keeps running and the up player keeps guessing, exactly
-  // like the old auto-checked wrong guess did.
+  // A single ตอบผิด vote fails the whole attempt right away (winning needs
+  // everyone to agree it's correct, so one dissent is already enough to
+  // reject it) - clears every vote so the next attempt starts clean. Never
+  // ends the turn or costs anything beyond the time already spent - the
+  // stopwatch just keeps running.
   private handleMarkWrong(judgeUserId: string): void {
     if (this.phase !== "TURN" || !this.currentTurnUserId) {
       throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
@@ -254,11 +288,12 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     const guesser = this.players.get(this.currentTurnUserId)!;
     const guessedText = this.pendingGuess?.text;
     this.pendingGuess = null;
+    this.guessVotes.clear();
 
     this.appendSystemLog(
       guessedText
-        ? `${judge.username} บอกว่า "${guessedText}" ยังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
-        : `${judge.username} บอกว่ายังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
+        ? `${judge.username} กดว่า "${guessedText}" ยังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
+        : `${judge.username} กดว่ายังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
     );
   }
 
@@ -273,6 +308,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     const passer = this.players.get(userId)!;
     const word = this.currentWord;
     this.pendingGuess = null;
+    this.guessVotes.clear();
     const elapsedSeconds = this.finishTurn(userId, false);
     this.appendSystemLog(
       `${passer.username} ขอข้ามตา (คำคือ "${word}") - ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที`
@@ -325,6 +361,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     this.currentWord = this.nextWord();
     this.turnStartedAt = Date.now();
     this.pendingGuess = null;
+    this.guessVotes.clear();
     this.phase = "TURN";
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
@@ -334,6 +371,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     this.currentWord = null;
     this.turnStartedAt = null;
     this.pendingGuess = null;
+    this.guessVotes.clear();
     this.phase = "FINISHED";
     this.finished = true;
 
@@ -395,6 +433,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       wordCategory: this.wordCategory,
       result: this.finished ? this.roundResult : null,
       pendingGuess: this.pendingGuess,
+      guessVotes: Object.fromEntries(this.guessVotes) as WordHeadGuessVotes,
     };
   }
 

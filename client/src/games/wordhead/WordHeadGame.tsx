@@ -60,6 +60,18 @@ export function WordHeadGame({
     ? usernameByUserId.get(publicState.currentTurnUserId) ?? "ไม่ทราบชื่อ"
     : null;
 
+  // Winning an attempt needs EVERY currently-connected player other than
+  // the up player to press ตอบถูก - mirrors WordHeadGame.eligibleVoterIds
+  // on the server exactly, so the tally shown here always matches what the
+  // server is actually waiting for.
+  const eligibleVoterIds = useMemo(
+    () => publicState.players.filter((p) => p.connected && p.userId !== publicState.currentTurnUserId).map((p) => p.userId),
+    [publicState.players, publicState.currentTurnUserId]
+  );
+  const votesNeeded = eligibleVoterIds.length;
+  const votesCorrectCount = eligibleVoterIds.filter((id) => publicState.guessVotes[id] === "correct").length;
+  const selfVote = selfUserId ? publicState.guessVotes[selfUserId] : undefined;
+
   const categoryLabel = getCategoryLabel(publicState.wordCategory);
   const currentRoundNumber = scoreboard
     ? Math.min(scoreboard.roundsPlayed + (isFinished ? 0 : 1), scoreboard.numberOfRounds ?? Infinity)
@@ -249,6 +261,11 @@ export function WordHeadGame({
                 ยอมแพ้ / ข้ามตานี้
               </Button>
             </div>
+            {votesCorrectCount > 0 && (
+              <p className="mt-3 text-xs text-emerald-400">
+                ✅ {votesCorrectCount}/{votesNeeded} คนยืนยันว่าคุณตอบถูกแล้ว - รอให้ครบทุกคน
+              </p>
+            )}
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
           </Card>
         )}
@@ -265,6 +282,9 @@ export function WordHeadGame({
               isMarkingWrong={isMarkingWrong}
               onMarkCorrect={handleMarkCorrect}
               onMarkWrong={handleMarkWrong}
+              votesCorrectCount={votesCorrectCount}
+              votesNeeded={votesNeeded}
+              selfVote={selfVote ?? null}
             />
             {actionError && <p className="text-sm text-red-400">{actionError}</p>}
           </>
@@ -282,6 +302,9 @@ export function WordHeadGame({
               isMarkingWrong={isMarkingWrong}
               onMarkCorrect={handleMarkCorrect}
               onMarkWrong={handleMarkWrong}
+              votesCorrectCount={votesCorrectCount}
+              votesNeeded={votesNeeded}
+              selfVote={selfVote ?? null}
             />
           )}
 
