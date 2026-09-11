@@ -65,7 +65,7 @@ export function PlayPage() {
 
     function refreshScoreboard() {
       api
-        .get<{ scoreboard: Scoreboard }>(`/rooms/${roomCode}/scoreboard`)
+        .get<{ scoreboard: Scoreboard }>(`/rooms/${roomCode}/scoreboard?scope=current`)
         .then((res) => {
           if (!cancelled) setScoreboard(res.data.scoreboard);
         })
@@ -146,6 +146,7 @@ export function PlayPage() {
         // Majority (or a tie, or nobody answering in time) said not to
         // continue - everyone heads back to the lobby right away.
         setContinueResolution(null);
+        if (useRoomStore.getState().room?.game.slug === "spyfall") clear();
         navigate(`/lobby/${roomCode}`, { replace: true });
       }
     }

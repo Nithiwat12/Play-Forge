@@ -33,7 +33,7 @@ export const roomController = {
 
   getScoreboard: asyncHandler(async (req: Request, res: Response) => {
     if (!req.user) throw ApiError.unauthorized();
-    const scoreboard = await ScoreboardService.getScoreboardByRoomCode(req.params.roomCode);
+    const scoreboard = await ScoreboardService.getScoreboardByRoomCode(req.params.roomCode, req.query.scope === "current");
     res.status(200).json({ scoreboard });
   }),
 };

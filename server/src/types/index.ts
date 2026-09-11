@@ -45,6 +45,8 @@ export interface RoomSettings {
   // How many rounds this room's match runs for. Unset = unlimited (the
   // host can keep hitting "replay" indefinitely).
   numberOfRounds?: number;
+  // Completed rounds archived before the current Spy Hunt match.
+  spyfallRoundOffset?: number;
   // How the location/topic for each round gets picked. Unset/"RANDOM" =
   // every round draws from every location, no restriction. "FIXED" =
   // every round of this match is restricted to `category` (chosen once at

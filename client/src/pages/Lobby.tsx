@@ -41,7 +41,7 @@ export function Lobby() {
 
     function refreshScoreboard() {
       api
-        .get<{ scoreboard: Scoreboard }>(`/rooms/${roomCode}/scoreboard`)
+        .get<{ scoreboard: Scoreboard }>(`/rooms/${roomCode}/scoreboard?scope=current`)
         .then((res) => {
           if (!cancelled) setScoreboard(res.data.scoreboard);
         })

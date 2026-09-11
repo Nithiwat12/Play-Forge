@@ -94,6 +94,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   // Whose turn it is to pick someone to ask - see SpyfallPublicState's
   // askerUserId doc comment for the full relay mechanic.
   private askerUserId: string | null = null;
+  private previousAskerUserId: string | null = null;
   private pendingQuestion: { toUserId: string; toUsername: string; askedAt: number } | null = null;
   private disconnected: Set<string> = new Set();
   private phase: SpyfallPhase = "IN_PROGRESS";
@@ -273,14 +274,19 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (this.phase !== "IN_PROGRESS") {
       throw new GameActionError("ตอนนี้ไม่ใช่ช่วงถาม-ตอบ");
     }
-    if (fromUserId !== this.askerUserId) {
+    const isAnswerer = this.pendingQuestion?.toUserId === fromUserId;
+    if (fromUserId !== this.askerUserId && !isAnswerer) {
       throw new GameActionError("ยังไม่ถึงตาคุณจะถาม");
     }
-    if (this.pendingQuestion) {
+    if (this.pendingQuestion && !isAnswerer) {
       throw new GameActionError("รอให้ตอบคำถามก่อนหน้านี้ก่อน");
     }
     if (payload.toUserId === fromUserId) {
       throw new GameActionError("คุณถามตัวเองไม่ได้");
+    }
+    const blockedTarget = isAnswerer ? this.askerUserId : this.previousAskerUserId;
+    if (payload.toUserId === blockedTarget) {
+      throw new GameActionError("ห้ามถามคนที่เพิ่งถามคุณ ต้องผ่านคนอื่น 1 คนก่อน");
     }
     const target = this.players.get(payload.toUserId);
     if (!target) {
@@ -291,6 +297,11 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     }
     const from = this.players.get(fromUserId)!;
 
+    // Validate the next target before completing the previous turn.
+    if (isAnswerer) {
+      this.previousAskerUserId = this.askerUserId;
+      this.askerUserId = fromUserId;
+    }
     this.pendingQuestion = { toUserId: target.userId, toUsername: target.username, askedAt: Date.now() };
 
     this.appendLog({
@@ -316,6 +327,9 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       throw new GameActionError("ยังไม่มีคำถามที่ต้องตอบตอนนี้");
     }
     const from = this.players.get(fromUserId)!;
+    this.previousAskerUserId = this.askerUserId;
+    this.pendingQuestion = null;
+    this.askerUserId = fromUserId;
     if (payload.text) {
       this.appendLog({
         id: randomUUID(),
@@ -328,8 +342,6 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     } else {
       this.appendSystemLog(`${from.username} ตอบคำถามแล้ว (ตอบด้วยวาจา)`);
     }
-    this.pendingQuestion = null;
-    this.askerUserId = fromUserId; // the answerer becomes the next asker
   }
 
   // Anyone - the Spy included, with no special-casing - can request a call-
@@ -788,6 +800,8 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       revealedReason: this.phase === "REVEALED" ? this.revealedReason : null,
       debateCandidateIds: this.debateCandidateIds ? Array.from(this.debateCandidateIds) : null,
       askerUserId: this.phase === "IN_PROGRESS" ? this.askerUserId : null,
+      blockedAskTargetUserId: this.phase === "IN_PROGRESS"
+        ? (this.pendingQuestion ? this.askerUserId : this.previousAskerUserId) : null,
       pendingQuestion: this.phase === "IN_PROGRESS" ? this.pendingQuestion : null,
     };
   }

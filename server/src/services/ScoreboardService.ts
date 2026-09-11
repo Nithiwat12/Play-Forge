@@ -41,27 +41,28 @@ export const ScoreboardService = {
     const room = await prisma.room.findUnique({ where: { id: roomId }, select: { settings: true } });
     if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
 
-    return buildScoreboard(roomId, (room.settings as RoomSettings | null) ?? null);
+    return buildScoreboard(roomId, (room.settings as RoomSettings | null) ?? null, true);
   },
 
-  async getScoreboardByRoomCode(roomCode: string): Promise<Scoreboard> {
+  async getScoreboardByRoomCode(roomCode: string, currentMatch = false): Promise<Scoreboard> {
     const room = await prisma.room.findUnique({
       where: { roomCode: roomCode.toUpperCase() },
       select: { id: true, settings: true },
     });
     if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
 
-    return buildScoreboard(room.id, (room.settings as RoomSettings | null) ?? null);
+    return buildScoreboard(room.id, (room.settings as RoomSettings | null) ?? null, currentMatch);
   },
 };
 
-async function buildScoreboard(roomId: string, settings: RoomSettings | null): Promise<Scoreboard> {
+async function buildScoreboard(roomId: string, settings: RoomSettings | null, currentMatch: boolean): Promise<Scoreboard> {
   const numberOfRounds = settings?.numberOfRounds ?? null;
 
   const [sessions, allPlayers] = await Promise.all([prisma.gameSession.findMany({
     where: { roomId, status: "COMPLETED" },
+    ...(currentMatch ? { skip: settings?.spyfallRoundOffset ?? 0 } : {}),
     include: { history: true },
-    orderBy: { startedAt: "asc" },
+    orderBy: [{ startedAt: "asc" }, { id: "asc" }],
   }),
 
   // Look up every player who has ever sat in this room (not just current

@@ -208,7 +208,7 @@ async function attachMatchComplete(rooms: PublicRoom[]): Promise<PublicRoom[]> {
 
   return rooms.map((room) => {
     const numberOfRounds = room.settings?.numberOfRounds;
-    const roundsPlayed = roundsPlayedByRoomId.get(room.id) ?? 0;
+    const roundsPlayed = Math.max(0, (roundsPlayedByRoomId.get(room.id) ?? 0) - (room.settings?.spyfallRoundOffset ?? 0));
     return {
       ...room,
       matchComplete: Boolean(numberOfRounds && roundsPlayed >= numberOfRounds),

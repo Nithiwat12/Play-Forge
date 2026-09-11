@@ -161,15 +161,25 @@ async function finalizeGame(io: AppServer, roomId: string) {
 
   await GameSessionService.finalizeSession(session.sessionId, result);
 
-  await RoomService.markWaiting(roomId);
+  const scoreboard = await ScoreboardService.getScoreboardByRoomId(roomId);
+  const completedRoom = await RoomService.getRoomById(roomId);
+  const resetSpyfall = completedRoom.game.slug === "spyfall" && scoreboard.matchComplete;
+  if (resetSpyfall) {
+    clearContinueState(roomId);
+    await RoomService.resetSpyfallMatch(roomId);
+  }
   await RoomService.resetReadiness(roomId);
-
-  const scoreboard = await ScoreboardService.getScoreboardByRoomId(roomId).catch(() => null);
+  await RoomService.markWaiting(roomId);
   io.to(roomId).emit("game:end", { result, scoreboard });
 
   const room = await RoomService.getPublicRoomById(roomId).catch(() => null);
   if (room) {
     io.to(roomId).emit("room:update", { room: withPresence(room) });
+  }
+
+  if (resetSpyfall) {
+    io.to(roomId).emit("game:continueResolved", { roomId, willContinue: false, nextRoundAt: null });
+    return;
   }
 
   // Always offer everyone the chance to keep going in the SAME room,

@@ -118,6 +118,7 @@ export interface SpyfallPublicState {
   // pick a target (see pendingQuestion), the target answers and becomes
   // the new asker, and so on. Null once the round leaves IN_PROGRESS.
   askerUserId: string | null;
+  blockedAskTargetUserId: string | null;
   // Set the instant askerUserId picks a target - the question itself may
   // have been asked out loud, so `text` in the matching log entry can be
   // empty. Cleared the moment that target answers (see SPYFALL_ACTIONS.

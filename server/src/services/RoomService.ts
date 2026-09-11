@@ -378,6 +378,17 @@ export const RoomService = {
     });
   },
 
+  async resetSpyfallMatch(roomId: string): Promise<void> {
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { settings: true } });
+    if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
+    const completed = await prisma.gameSession.count({ where: { roomId, status: "COMPLETED" } });
+    const settings = (room.settings as RoomSettings | null) ?? {};
+    await prisma.room.update({
+      where: { id: roomId },
+      data: { settings: { ...settings, spyfallRoundOffset: completed } as any },
+    });
+  },
+
   /** Called when a game ends and the room returns to its lobby. */
   async resetReadiness(roomId: string) {
     await prisma.roomPlayer.updateMany({
