@@ -35,11 +35,6 @@ export function GameResult() {
   const details = result?.details;
   const hasSpyfallShape = Boolean(details?.winner || details?.spyUsername);
 
-  // This round's own score is just one column of the match-wide scoreboard
-  // (see ScoreboardTable), so rather than showing a separate little
-  // "this round's points" table above it - two tables telling overlapping
-  // stories side by side reads as disconnected/duplicated - this loads and
-  // shows only the one match-wide table, which already covers it.
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
   const [isLoadingScoreboard, setIsLoadingScoreboard] = useState(true);
   const [scoreboardError, setScoreboardError] = useState<string | null>(null);
@@ -66,6 +61,17 @@ export function GameResult() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry?.roomCode]);
 
+  // The Spy is a different person round to round, so "สปายคือ X" only ever
+  // makes sense for a single round taken on its own - once the room has
+  // played more than one round, this same page switches to a match-level
+  // summary (top scorer + the full table) instead of repeating one round's
+  // spy reveal as if it spoke for the whole match. A failed scoreboard
+  // fetch falls back to the single-round view, since that much is always
+  // available from the history entry itself regardless.
+  const isMultiRound = !scoreboardError && (scoreboard?.roundsPlayed ?? 0) > 1;
+  const maxTotal = scoreboard?.totals[0]?.total ?? 0;
+  const topScorers = maxTotal > 0 ? (scoreboard?.totals.filter((t) => t.total === maxTotal) ?? []) : [];
+
   return (
     <div className="min-h-screen">
       <Navbar />
@@ -81,51 +87,24 @@ export function GameResult() {
             </p>
             <p className="mt-2 text-xs text-slate-600">รหัสรอบเกม: {gameSessionId}</p>
           </Card>
-        ) : (
+        ) : isLoadingScoreboard ? (
+          <Card>
+            <Spinner className="mt-2" />
+          </Card>
+        ) : isMultiRound ? (
           <>
             <Card>
               <p className="text-sm text-slate-400">{entry.gameName}</p>
               <h1 className="text-xl font-semibold text-white">{entry.roomName}</h1>
-              <p className="mt-1 text-xs text-slate-500">
-                ห้อง {entry.roomCode} - {new Date(entry.startedAt).toLocaleString("th-TH")}
-              </p>
+              <p className="mt-1 text-xs text-slate-500">ห้อง {entry.roomCode}</p>
 
-              {hasSpyfallShape ? (
-                <>
-                  {details?.winner && (
-                    <h2 className="mt-4 text-lg font-semibold text-white">
-                      {details.winner === "SPY" ? "🕵️ สปายชนะ!" : "🏆 กลุ่มผู้เล่นชนะ!"}
-                    </h2>
-                  )}
-
-                  {(details?.reason ?? result?.summary) && (
-                    <p className="mt-2 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">
-                      {details?.reason ?? result?.summary}
-                    </p>
-                  )}
-
-                  {(details?.spyUsername || details?.location) && (
-                    <p className="mt-3 text-sm text-slate-400">
-                      {details?.spyUsername && (
-                        <>
-                          สปายคือ <span className="text-white">{details.spyUsername}</span>
-                        </>
-                      )}
-                      {details?.spyUsername && details?.location && " - "}
-                      {details?.location && (
-                        <>
-                          สถานที่คือ <span className="text-white">{details.location}</span>
-                        </>
-                      )}
-                    </p>
-                  )}
-                </>
-              ) : (
-                result?.summary && (
-                  <p className="mt-4 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">
-                    {result.summary}
-                  </p>
-                )
+              <h2 className="mt-4 text-lg font-semibold text-white">
+                {topScorers.length > 0
+                  ? `🏆 ผู้ชนะคือ ${topScorers.map((t) => t.username).join(" และ ")}`
+                  : "🏆 จบแมตช์แล้ว"}
+              </h2>
+              {topScorers.length > 0 && (
+                <p className="mt-1 text-sm text-slate-400">รวม {maxTotal} คะแนน</p>
               )}
 
               <Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>
@@ -133,14 +112,64 @@ export function GameResult() {
               </Button>
             </Card>
 
-            {isLoadingScoreboard && <Spinner className="mt-6" />}
-            {scoreboardError && <p className="mt-4 text-sm text-red-400">{scoreboardError}</p>}
-            {scoreboard && scoreboard.roundsPlayed > 0 && (
+            {scoreboard && (
               <div className="mt-4">
                 <ScoreboardTable scoreboard={scoreboard} />
               </div>
             )}
           </>
+        ) : (
+          <Card>
+            <p className="text-sm text-slate-400">{entry.gameName}</p>
+            <h1 className="text-xl font-semibold text-white">{entry.roomName}</h1>
+            <p className="mt-1 text-xs text-slate-500">
+              ห้อง {entry.roomCode} - {new Date(entry.startedAt).toLocaleString("th-TH")}
+            </p>
+
+            {hasSpyfallShape ? (
+              <>
+                {details?.winner && (
+                  <h2 className="mt-4 text-lg font-semibold text-white">
+                    {details.winner === "SPY" ? "🕵️ สปายชนะ!" : "🏆 กลุ่มผู้เล่นชนะ!"}
+                  </h2>
+                )}
+
+                {(details?.reason ?? result?.summary) && (
+                  <p className="mt-2 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">
+                    {details?.reason ?? result?.summary}
+                  </p>
+                )}
+
+                {(details?.spyUsername || details?.location) && (
+                  <p className="mt-3 text-sm text-slate-400">
+                    {details?.spyUsername && (
+                      <>
+                        สปายคือ <span className="text-white">{details.spyUsername}</span>
+                      </>
+                    )}
+                    {details?.spyUsername && details?.location && " - "}
+                    {details?.location && (
+                      <>
+                        สถานที่คือ <span className="text-white">{details.location}</span>
+                      </>
+                    )}
+                  </p>
+                )}
+              </>
+            ) : (
+              result?.summary && (
+                <p className="mt-4 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">
+                  {result.summary}
+                </p>
+              )
+            )}
+
+            {scoreboardError && <p className="mt-3 text-sm text-red-400">{scoreboardError}</p>}
+
+            <Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>
+              กลับไปที่ประวัติเกม
+            </Button>
+          </Card>
         )}
       </main>
     </div>
