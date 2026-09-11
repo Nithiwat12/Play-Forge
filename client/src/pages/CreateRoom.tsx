@@ -8,9 +8,15 @@ import { Button } from "../components/common/Button";
 import { api, extractErrorMessage } from "../services/api";
 import { useRoomStore } from "../stores/roomStore";
 import { SPYFALL_CATEGORIES } from "../games/spyfall/categories";
+import { WORDHEAD_CATEGORIES } from "../games/wordhead/categories";
 import type { Room, RoomSettings } from "../types";
 
 type CategoryMode = NonNullable<RoomSettings["categoryMode"]>;
+
+// WordHead doesn't support PER_ROUND yet (see gameSocket's Spyfall-specific
+// locationCategory coupling in the continue-vote layer) - only Spyfall gets
+// that third option.
+
 
 export function CreateRoom() {
   const { gameSlug } = useParams<{ gameSlug: string }>();
@@ -25,7 +31,11 @@ export function CreateRoom() {
   const [limitRounds, setLimitRounds] = useState(false);
   const [numberOfRounds, setNumberOfRounds] = useState(3);
   const [categoryMode, setCategoryMode] = useState<CategoryMode>("RANDOM");
-  const [category, setCategory] = useState<string>(SPYFALL_CATEGORIES[0].id);
+  const isWordHead = gameSlug === "wordhead";
+  const isSpyfall = gameSlug === "spyfall";
+  const CATEGORIES = isWordHead ? WORDHEAD_CATEGORIES : SPYFALL_CATEGORIES;
+  const categoryLabel = isWordHead ? "หมวดหมู่คำ" : "หมวดหมู่สถานที่";
+  const [category, setCategory] = useState<string>(CATEGORIES[0].id);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -91,16 +101,18 @@ export function CreateRoom() {
               value={maxPlayers}
               onChange={(e) => setMaxPlayers(Number(e.target.value))}
             />
-            <Input
-              id="discussionMinutes"
-              type="number"
-              label="เวลาพูดคุยต่อรอบ (นาที)"
-              required
-              min={3}
-              max={20}
-              value={discussionMinutes}
-              onChange={(e) => setDiscussionMinutes(Number(e.target.value))}
-            />
+            {isSpyfall && (
+              <Input
+                id="discussionMinutes"
+                type="number"
+                label="เวลาพูดคุยต่อรอบ (นาที)"
+                required
+                min={3}
+                max={20}
+                value={discussionMinutes}
+                onChange={(e) => setDiscussionMinutes(Number(e.target.value))}
+              />
+            )}
 
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input
@@ -127,7 +139,7 @@ export function CreateRoom() {
 
             <div className="flex flex-col gap-2">
               <label htmlFor="categoryMode" className="text-sm text-slate-300">
-                หมวดหมู่สถานที่
+                {categoryLabel}
               </label>
               <select
                 id="categoryMode"
@@ -137,7 +149,9 @@ export function CreateRoom() {
               >
                 <option value="RANDOM">สุ่มทุกรอบ (ทุกหมวดหมู่)</option>
                 <option value="FIXED">เลือกหมวดหมู่คงที่ (ใช้ตลอดทั้งแมตช์)</option>
-                <option value="PER_ROUND">ให้หัวหน้าห้องเลือกหมวดหมู่ก่อนเริ่มแต่ละรอบ</option>
+                {isSpyfall && (
+                  <option value="PER_ROUND">ให้หัวหน้าห้องเลือกหมวดหมู่ก่อนเริ่มแต่ละรอบ</option>
+                )}
               </select>
 
               {categoryMode === "FIXED" && (
@@ -147,7 +161,7 @@ export function CreateRoom() {
                   onChange={(e) => setCategory(e.target.value)}
                   className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
                 >
-                  {SPYFALL_CATEGORIES.map((c) => (
+                  {CATEGORIES.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.label}
                     </option>
@@ -155,7 +169,7 @@ export function CreateRoom() {
                 </select>
               )}
 
-              {categoryMode === "PER_ROUND" && (
+              {categoryMode === "PER_ROUND" && isSpyfall && (
                 <p className="text-xs text-slate-500">
                   รอบแรกจะสุ่มหมวดหมู่ก่อน จากนั้นก่อนเริ่มรอบถัดไปทุกครั้ง หัวหน้าห้องจะเลือกหมวดหมู่ใหม่
                   หรือเล่นหมวดเดิมก็ได้ - ผู้เล่นคนอื่นต้องรอจนกว่าหัวหน้าห้องจะเลือกเสร็จ

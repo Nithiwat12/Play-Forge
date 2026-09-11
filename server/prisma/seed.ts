@@ -15,6 +15,15 @@ const games = [
     maxPlayers: 8,
     isActive: true,
   },
+  {
+    name: "ทายคำบนหัว",
+    slug: "wordhead",
+    description:
+      "ทุกคนจะมีคำลับติดอยู่ \"บนหัว\" ที่ตัวเองมองไม่เห็นแต่คนอื่นเห็นหมด ผลัดกันถามคำถามใช่/ไม่ใช่กับเพื่อน ๆ เพื่อไขคำใบ้ แล้วทายคำของตัวเองให้ถูกก่อนหมดเวลา ยิ่งใช้คำถามน้อยยิ่งได้คะแนนเยอะ",
+    minPlayers: 3,
+    maxPlayers: 8,
+    isActive: true,
+  },
 ];
 
 async function main() {
