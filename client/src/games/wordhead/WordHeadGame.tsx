@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { Card } from "../../components/common/Card";
 import { Button } from "../../components/common/Button";
 import { Input } from "../../components/common/Input";
-import { Timer } from "../../components/common/Timer";
-import { ScoreboardTable } from "../../components/game/ScoreboardTable";
 import { PlayerBoard } from "./PlayerBoard";
-import { AnswerPoll } from "./AnswerPoll";
+import { HintPanel } from "./HintPanel";
+import { Stopwatch } from "./Stopwatch";
 import { NotesPad } from "./NotesPad";
+import { WordHeadTimeTable } from "./WordHeadTimeTable";
+import type { WordHeadTimeEntry } from "./WordHeadTimeTable";
 import { getCategoryLabel } from "./categories";
 import { WORDHEAD_ACTIONS } from "./types";
 import type { WordHeadPublicState, WordHeadPrivateState } from "./types";
@@ -34,14 +35,12 @@ export function WordHeadGame({
   matchClosesAt,
 }: WordHeadGameProps) {
   const navigate = useNavigate();
-  const [questionText, setQuestionText] = useState("");
   const [guessText, setGuessText] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
-  const [votingChoice, setVotingChoice] = useState<"YES" | "NO" | "UNSURE" | null>(null);
+  const [isGivingHint, setIsGivingHint] = useState(false);
 
   const isFinished = publicState.phase === "FINISHED";
-  const isAnswerWindow = publicState.phase === "ANSWER_WINDOW";
   const isMyTurn = publicState.phase === "TURN" && publicState.currentTurnUserId === selfUserId;
   const matchComplete = scoreboard?.matchComplete ?? false;
 
@@ -73,6 +72,27 @@ export function WordHeadGame({
     ? Math.max(0, Math.ceil((matchClosesAt - nowForMatchClose) / 1000))
     : 0;
 
+  const resultEntries: WordHeadTimeEntry[] = useMemo(() => {
+    if (!publicState.result) return [];
+    return Object.entries(publicState.result.scores).map(([userId, seconds]) => ({
+      userId,
+      username: usernameByUserId.get(userId) ?? "ไม่ทราบชื่อ",
+      seconds,
+      correct: publicState.result!.correctUserIds.includes(userId),
+    }));
+  }, [publicState.result, usernameByUserId]);
+
+  // Cumulative total across every round played so far this match (only
+  // meaningful once numberOfRounds > 1 is configured) - re-derived from the
+  // same generic scoreboard.totals the shared ScoreboardTable uses, since
+  // that's sorted highest-first for a points game; wordhead's totals are
+  // seconds where lower is better, so this re-sorts ascending instead of
+  // reusing that shared component as-is.
+  const cumulativeEntries: WordHeadTimeEntry[] = useMemo(() => {
+    if (!scoreboard || scoreboard.roundsPlayed <= 1) return [];
+    return scoreboard.totals.map((t) => ({ userId: t.userId, username: t.username, seconds: t.total }));
+  }, [scoreboard]);
+
   function handleBackToLobbyOrHome() {
     if (matchComplete) {
       navigate("/home", { state: { notice: `เกม "${room.roomName}" จบแล้ว! เล่นครบ ${scoreboard?.numberOfRounds} รอบ` } });
@@ -95,17 +115,6 @@ export function WordHeadGame({
     [onAction]
   );
 
-  async function handleAsk() {
-    setIsSubmittingAction(true);
-    try {
-      await runAction(WORDHEAD_ACTIONS.ASK_QUESTION, { questionText: questionText.trim() || null }, () =>
-        setQuestionText("")
-      );
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  }
-
   async function handleGuess() {
     if (!guessText.trim()) return;
     setIsSubmittingAction(true);
@@ -117,6 +126,7 @@ export function WordHeadGame({
   }
 
   async function handlePass() {
+    if (!window.confirm("ยอมแพ้ตานี้เลยเหรอ? เวลาที่ใช้ไปแล้วจะถูกบันทึกไว้ และย้อนกลับไม่ได้")) return;
     setIsSubmittingAction(true);
     try {
       await runAction(WORDHEAD_ACTIONS.PASS_TURN, {});
@@ -125,12 +135,12 @@ export function WordHeadGame({
     }
   }
 
-  async function handleVote(vote: "YES" | "NO" | "UNSURE") {
-    setVotingChoice(vote);
+  async function handleGiveHint(hintText: string | null) {
+    setIsGivingHint(true);
     try {
-      await runAction(WORDHEAD_ACTIONS.ANSWER_QUESTION, { vote });
+      await runAction(WORDHEAD_ACTIONS.HINT, { hintText });
     } finally {
-      setVotingChoice(null);
+      setIsGivingHint(false);
     }
   }
 
@@ -150,45 +160,25 @@ export function WordHeadGame({
               {categoryLabel && `หมวด ${categoryLabel}`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            {publicState.roundEndsAt && !isFinished && (
-              <div className="text-right">
-                <p className="text-[10px] uppercase text-slate-500">เวลาทั้งรอบ</p>
-                <Timer endsAt={publicState.roundEndsAt} />
-              </div>
-            )}
-            {publicState.turnEndsAt && !isFinished && (
-              <div className="text-right">
-                <p className="text-[10px] uppercase text-slate-500">เวลาในตานี้</p>
-                <Timer endsAt={publicState.turnEndsAt} />
-              </div>
-            )}
-          </div>
+          {!isFinished && <Stopwatch startedAt={publicState.turnStartedAt} />}
         </Card>
 
         {isFinished && publicState.result && (
           <Card className="border-brand-700">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-400">จบเกมแล้ว</p>
             <h2 className="mt-1 text-lg font-semibold text-white">{publicState.result.summary}</h2>
-            <p className="mt-2 text-sm text-slate-400">
-              ทายถูก {publicState.result.correctCount} / {publicState.result.totalPlayers} คน
-            </p>
-
-            {Object.values(publicState.result.scores ?? {}).some((pts) => pts > 0) && (
-              <div className="mt-4 rounded-lg bg-slate-900/60 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">คะแนนที่ได้รอบนี้</p>
-                <ul className="mt-2 flex flex-col gap-1">
-                  {Object.entries(publicState.result.scores)
-                    .filter(([, pts]) => pts > 0)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([userId, pts]) => (
-                      <li key={userId} className="flex items-center justify-between text-sm text-slate-300">
-                        <span>{usernameByUserId.get(userId) ?? "ไม่ทราบชื่อ"}</span>
-                        <span className="font-semibold text-emerald-400">+{pts}</span>
-                      </li>
-                    ))}
-                </ul>
-              </div>
+            {publicState.result.fastestUserId && (
+              <p className="mt-2 text-sm text-slate-300">
+                ⚡ เร็วที่สุด: <span className="font-semibold text-emerald-400">{usernameByUserId.get(publicState.result.fastestUserId) ?? "ไม่ทราบชื่อ"}</span>
+                {publicState.result.slowestUserId && publicState.result.slowestUserId !== publicState.result.fastestUserId && (
+                  <>
+                    {" "}· 🐢 ช้าที่สุด:{" "}
+                    <span className="font-semibold text-amber-400">
+                      {usernameByUserId.get(publicState.result.slowestUserId) ?? "ไม่ทราบชื่อ"}
+                    </span>
+                  </>
+                )}
+              </p>
             )}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -207,71 +197,56 @@ export function WordHeadGame({
           </Card>
         )}
 
-        {isFinished && scoreboard && <ScoreboardTable scoreboard={scoreboard} />}
-
-        {isAnswerWindow && publicState.pendingPoll && (
-          <AnswerPoll
-            poll={publicState.pendingPoll}
-            askerUsername={usernameByUserId.get(publicState.pendingPoll.askerUserId) ?? "ไม่ทราบชื่อ"}
-            selfUserId={selfUserId}
-            isSubmitting={votingChoice !== null}
-            onVote={handleVote}
-          />
+        {isFinished && <WordHeadTimeTable entries={resultEntries} title="สรุปเวลารอบนี้" />}
+        {isFinished && cumulativeEntries.length > 0 && (
+          <WordHeadTimeTable entries={cumulativeEntries} title="เวลารวมสะสมทั้งแมตช์" />
         )}
 
-        {!isFinished && publicState.phase === "TURN" && (
-          <Card>
-            {isMyTurn ? (
-              <>
-                <h2 className="text-sm font-semibold text-slate-300">ตาของคุณ - ถามคำถามหรือทายคำของตัวเอง</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  ถ้านั่งเล่นด้วยกัน จะถามด้วยปากเปล่าแล้วกดปุ่ม "ถามคำถาม" เฉย ๆ ก็ได้ ไม่ต้องพิมพ์คำถามก็ได้
-                </p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    value={questionText}
-                    onChange={(e) => setQuestionText(e.target.value)}
-                    placeholder="พิมพ์คำถาม (ไม่จำเป็น)..."
-                    className="flex-1"
-                  />
-                  <Button onClick={handleAsk} isLoading={isSubmittingAction}>
-                    ถามคำถาม
-                  </Button>
-                </div>
-
-                <h2 className="mt-5 text-sm font-semibold text-slate-300">ทายคำของตัวเอง</h2>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    value={guessText}
-                    onChange={(e) => setGuessText(e.target.value)}
-                    placeholder="พิมพ์คำที่คุณคิดว่าใช่..."
-                    className="flex-1"
-                  />
-                  <Button variant="danger" onClick={handleGuess} disabled={!guessText.trim()} isLoading={isSubmittingAction}>
-                    ทายคำ
-                  </Button>
-                </div>
-
-                <div className="mt-4">
-                  <Button variant="secondary" onClick={handlePass} isLoading={isSubmittingAction}>
-                    ข้ามตานี้
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-slate-400">
-                รอ <span className="font-medium text-white">{currentTurnUsername}</span> ถามคำถามหรือทายคำ...
-              </p>
-            )}
+        {!isFinished && publicState.phase === "TURN" && isMyTurn && (
+          <Card className="border-amber-700">
+            <h2 className="text-sm font-semibold text-slate-300">ตาของคุณ - ทายคำของตัวเอง</h2>
+            <p className="mt-1 text-xs text-slate-500">คนอื่นในห้องเห็นคำของคุณและกำลังช่วยใบ้อยู่ - ฟังคำใบ้แล้วพิมพ์คำตอบ</p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={guessText}
+                onChange={(e) => setGuessText(e.target.value)}
+                placeholder="พิมพ์คำที่คุณคิดว่าใช่..."
+                className="flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleGuess();
+                }}
+              />
+              <Button variant="danger" onClick={handleGuess} disabled={!guessText.trim()} isLoading={isSubmittingAction}>
+                ทายคำ
+              </Button>
+            </div>
+            <div className="mt-4">
+              <Button variant="ghost" onClick={handlePass} isLoading={isSubmittingAction}>
+                ยอมแพ้ / ข้ามตานี้
+              </Button>
+            </div>
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
           </Card>
+        )}
+
+        {!isFinished && publicState.phase === "TURN" && !isMyTurn && currentTurnUsername && (
+          <>
+            <HintPanel
+              currentWord={privateState.currentWord}
+              currentTurnUsername={currentTurnUsername}
+              hintCooldownEndsAt={privateState.hintCooldownEndsAt}
+              isSubmitting={isGivingHint}
+              onGiveHint={handleGiveHint}
+            />
+            {actionError && <p className="text-sm text-red-400">{actionError}</p>}
+          </>
         )}
 
         <Card>
           <h2 className="text-sm font-semibold text-slate-300">ประวัติการเล่น</h2>
           <div className="mt-3 flex max-h-72 flex-col gap-2 overflow-y-auto">
             {publicState.log.length === 0 && (
-              <p className="text-sm text-slate-500">ยังไม่มีการถามคำถาม - เริ่มถามกันเลย!</p>
+              <p className="text-sm text-slate-500">ยังไม่มีใครให้คำใบ้ - เริ่มช่วยกันใบ้ได้เลย!</p>
             )}
             {publicState.log.map((entry) => {
               if (entry.type === "system") {
@@ -295,25 +270,12 @@ export function WordHeadGame({
                 );
               }
               return (
-                <div key={entry.id} className="rounded-lg bg-slate-900/70 px-3 py-2 text-sm">
-                  <span className="font-medium text-slate-200">{entry.username}</span>
+                <div key={entry.id} className="rounded-lg bg-emerald-950/30 px-3 py-2 text-sm">
+                  <span className="font-medium text-slate-200">💡 {entry.username}</span>
                   <span className="text-slate-300">
                     {" "}
-                    {entry.text ? `ถามว่า "${entry.text}"` : "ถามคำถาม (ด้วยวาจา)"}
+                    {entry.text ? `ใบ้ว่า "${entry.text}"` : "ให้คำใบ้ (ด้วยวาจา)"}
                   </span>
-                  {entry.answer && (
-                    <span
-                      className={`ml-2 font-semibold ${
-                        entry.answer === "YES"
-                          ? "text-emerald-400"
-                          : entry.answer === "NO"
-                            ? "text-red-400"
-                            : "text-slate-400"
-                      }`}
-                    >
-                      {entry.answer === "YES" ? "ใช่" : entry.answer === "NO" ? "ไม่ใช่" : "ไม่แน่ใจ"}
-                    </span>
-                  )}
                 </div>
               );
             })}
@@ -327,7 +289,6 @@ export function WordHeadGame({
           <div className="mt-3">
             <PlayerBoard
               players={publicState.players}
-              wordsByUserId={privateState.wordsByUserId}
               currentTurnUserId={publicState.currentTurnUserId}
               selfUserId={selfUserId}
             />

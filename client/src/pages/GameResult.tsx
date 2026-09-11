@@ -1,18 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../components/common/Navbar";
 import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Spinner } from "../components/common/Spinner";
 import { ScoreboardTable } from "../components/game/ScoreboardTable";
+import { WordHeadTimeTable } from "../games/wordhead/WordHeadTimeTable";
+import type { WordHeadTimeEntry } from "../games/wordhead/WordHeadTimeTable";
 import { api, extractErrorMessage } from "../services/api";
 import type { HistoryEntry, Scoreboard } from "../types";
 
-// Shaped after SpyfallResult (server/src/games/spyfall/SpyfallState.ts) -
-// the only game registered today, so it's fine to know its fields here
-// rather than fall back to a raw key/value dump. A future second game with
-// a differently-shaped `details` just renders as the generic summary-only
-// view below (see hasSpyfallShape).
+// Shaped after SpyfallResult (server/src/games/spyfall/SpyfallState.ts).
 interface SpyfallResultDetails {
   winner?: "SPY" | "NON_SPY";
   reason?: string;
@@ -20,9 +18,18 @@ interface SpyfallResultDetails {
   location?: string;
 }
 
+// Shaped after WordHeadResult (server/src/games/wordhead/WordHeadState.ts).
+// Unlike every other game, LOWER is better here - see that file's note.
+interface WordHeadResultDetails {
+  scores?: Record<string, number>;
+  correctUserIds?: string[];
+  fastestUserId?: string | null;
+  slowestUserId?: string | null;
+}
+
 interface ResultData {
   summary?: string;
-  details?: SpyfallResultDetails;
+  details?: SpyfallResultDetails & WordHeadResultDetails;
 }
 
 export function GameResult() {
@@ -33,7 +40,8 @@ export function GameResult() {
   const entry = (location.state as { entry?: HistoryEntry } | null)?.entry;
   const result = entry?.resultData as ResultData | null | undefined;
   const details = result?.details;
-  const hasSpyfallShape = Boolean(details?.winner || details?.spyUsername);
+  const isWordHead = entry?.gameSlug === "wordhead";
+  const hasSpyfallShape = !isWordHead && Boolean(details?.winner || details?.spyUsername);
 
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
   const [isLoadingScoreboard, setIsLoadingScoreboard] = useState(true);
@@ -69,8 +77,39 @@ export function GameResult() {
   // fetch falls back to the single-round view, since that much is always
   // available from the history entry itself regardless.
   const isMultiRound = !scoreboardError && (scoreboard?.roundsPlayed ?? 0) > 1;
-  const maxTotal = scoreboard?.totals[0]?.total ?? 0;
-  const topScorers = maxTotal > 0 ? (scoreboard?.totals.filter((t) => t.total === maxTotal) ?? []) : [];
+
+  // WordHead's scores are seconds (lower = better) - the opposite of every
+  // other game's points, so the match-level "winner" here is whoever has
+  // the SMALLEST total, not the largest.
+  const bestTotal = isWordHead
+    ? (scoreboard?.totals.length ? Math.min(...scoreboard.totals.map((t) => t.total)) : 0)
+    : (scoreboard?.totals[0]?.total ?? 0);
+  const topScorers = isWordHead
+    ? (scoreboard?.totals.filter((t) => t.total === bestTotal) ?? [])
+    : bestTotal > 0
+      ? (scoreboard?.totals.filter((t) => t.total === bestTotal) ?? [])
+      : [];
+
+  const cumulativeEntries: WordHeadTimeEntry[] = useMemo(
+    () => (scoreboard?.totals ?? []).map((t) => ({ userId: t.userId, username: t.username, seconds: t.total })),
+    [scoreboard]
+  );
+
+  const usernameByUserId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of scoreboard?.players ?? []) map.set(p.userId, p.username);
+    return map;
+  }, [scoreboard]);
+
+  const singleRoundEntries: WordHeadTimeEntry[] = useMemo(() => {
+    if (!isWordHead || !details?.scores) return [];
+    return Object.entries(details.scores).map(([userId, seconds]) => ({
+      userId,
+      username: usernameByUserId.get(userId) ?? "ไม่ทราบชื่อ",
+      seconds,
+      correct: details.correctUserIds?.includes(userId) ?? false,
+    }));
+  }, [isWordHead, details, usernameByUserId]);
 
   return (
     <div className="min-h-screen">
@@ -104,7 +143,9 @@ export function GameResult() {
                   : "🏆 จบแมตช์แล้ว"}
               </h2>
               {topScorers.length > 0 && (
-                <p className="mt-1 text-sm text-slate-400">รวม {maxTotal} คะแนน</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  {isWordHead ? `ใช้เวลารวมน้อยที่สุด ${bestTotal.toFixed(1)} วินาที` : `รวม ${bestTotal} คะแนน`}
+                </p>
               )}
 
               <Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>
@@ -112,7 +153,12 @@ export function GameResult() {
               </Button>
             </Card>
 
-            {scoreboard && (
+            {scoreboard && isWordHead && (
+              <div className="mt-4">
+                <WordHeadTimeTable entries={cumulativeEntries} title="เวลารวมสะสมทั้งแมตช์" />
+              </div>
+            )}
+            {scoreboard && !isWordHead && (
               <div className="mt-4">
                 <ScoreboardTable scoreboard={scoreboard} />
               </div>
@@ -126,7 +172,39 @@ export function GameResult() {
               ห้อง {entry.roomCode} - {new Date(entry.startedAt).toLocaleString("th-TH")}
             </p>
 
-            {hasSpyfallShape ? (
+            {isWordHead ? (
+              <>
+                {result?.summary && (
+                  <p className="mt-4 rounded-lg bg-slate-900/70 p-4 text-sm text-slate-200">{result.summary}</p>
+                )}
+                {(details?.fastestUserId || details?.slowestUserId) && (
+                  <p className="mt-3 text-sm text-slate-400">
+                    {details?.fastestUserId && (
+                      <>
+                        ⚡ เร็วที่สุด:{" "}
+                        <span className="text-white">
+                          {usernameByUserId.get(details.fastestUserId) ?? "ไม่ทราบชื่อ"}
+                        </span>
+                      </>
+                    )}
+                    {details?.fastestUserId && details?.slowestUserId && details.fastestUserId !== details.slowestUserId && " · "}
+                    {details?.slowestUserId && details.slowestUserId !== details.fastestUserId && (
+                      <>
+                        🐢 ช้าที่สุด:{" "}
+                        <span className="text-white">
+                          {usernameByUserId.get(details.slowestUserId) ?? "ไม่ทราบชื่อ"}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                )}
+                {singleRoundEntries.length > 0 && (
+                  <div className="mt-4">
+                    <WordHeadTimeTable entries={singleRoundEntries} title="สรุปเวลารอบนี้" />
+                  </div>
+                )}
+              </>
+            ) : hasSpyfallShape ? (
               <>
                 {details?.winner && (
                   <h2 className="mt-4 text-lg font-semibold text-white">

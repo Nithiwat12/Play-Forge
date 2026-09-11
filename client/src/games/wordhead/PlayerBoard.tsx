@@ -2,22 +2,24 @@ import type { WordHeadPublicPlayer } from "./types";
 
 interface PlayerBoardProps {
   players: WordHeadPublicPlayer[];
-  wordsByUserId: Record<string, string>;
   currentTurnUserId: string | null;
   selfUserId?: string;
 }
 
-// Shows every player's word "held up on their head" - visible to everyone
-// except themselves, exactly like the physical game. The current player's
-// own row deliberately never shows a word (wordsByUserId never contains
-// their own key - see WordHeadGame.getPrivateState).
-export function PlayerBoard({ players, wordsByUserId, currentTurnUserId, selfUserId }: PlayerBoardProps) {
+function formatSeconds(seconds: number): string {
+  return `${seconds.toFixed(1)} วิ`;
+}
+
+// Hot-seat roster: highlights whoever's up right now, and shows each
+// finished player's time once they've gone (lower is better - see
+// types.ts's file-level note) with a checkmark for a real guess vs. an X
+// for a give-up.
+export function PlayerBoard({ players, currentTurnUserId, selfUserId }: PlayerBoardProps) {
   return (
     <div className="flex flex-col gap-2">
       {players.map((p) => {
         const isSelf = p.userId === selfUserId;
         const isTurn = p.userId === currentTurnUserId;
-        const word = wordsByUserId[p.userId];
         return (
           <div
             key={p.userId}
@@ -35,19 +37,20 @@ export function PlayerBoard({ players, wordsByUserId, currentTurnUserId, selfUse
               </span>
               {isTurn && (
                 <span className="flex-shrink-0 rounded bg-brand-800 px-1.5 py-0.5 text-[10px] font-semibold text-brand-200">
-                  ตากำลังเล่น
-                </span>
-              )}
-              {p.guessedCorrectly && (
-                <span className="flex-shrink-0 rounded bg-emerald-900 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
-                  ทายถูกแล้ว
+                  กำลังเล่น
                 </span>
               )}
             </div>
-            <div className="flex flex-shrink-0 items-center gap-3 text-xs text-slate-400">
-              {!isSelf && word && <span className="font-mono text-sm text-amber-300">{word}</span>}
-              {isSelf && !p.guessedCorrectly && <span className="italic text-slate-600">???</span>}
-              <span>คะแนน {p.score}</span>
+            <div className="flex flex-shrink-0 items-center gap-2 text-xs text-slate-400">
+              {p.hasGone ? (
+                <span className={p.guessedCorrectly ? "text-emerald-400" : "text-slate-500"}>
+                  {p.guessedCorrectly ? "✅" : "⏭️"} {p.timeUsedSeconds != null && formatSeconds(p.timeUsedSeconds)}
+                </span>
+              ) : isTurn ? (
+                <span className="italic text-amber-400">กำลังทาย...</span>
+              ) : (
+                <span className="italic text-slate-600">รอคิว</span>
+              )}
             </div>
           </div>
         );

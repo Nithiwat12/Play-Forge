@@ -1,48 +1,53 @@
-export type WordHeadPhase = "TURN" | "ANSWER_WINDOW" | "FINISHED";
+// Hot-seat design: one player at a time is "up" - a word is picked for
+// them that only they can't see, everyone else in the room can see it and
+// help by pressing the hint button (their own text is optional - an
+// in-person group can just say hints out loud). The up player keeps
+// guessing until they get it right (or gives up) - a stopwatch tracks how
+// long it took them, which is the whole scoring system now (see
+// WordHeadResult.scores - lower is better, unlike every other game's
+// points-where-more-is-better convention; GameResult.tsx and
+// ScoreboardService both need to know this is a wordhead result to invert
+// their usual "highest wins" assumption).
+export type WordHeadPhase = "TURN" | "FINISHED";
 
 export interface WordHeadPublicPlayer {
   userId: string;
   username: string;
   connected: boolean;
+  // Undefined/false until this player has taken their turn.
+  hasGone: boolean;
   guessedCorrectly: boolean;
-  questionsUsed: number;
-  score: number;
+  // Seconds taken, once hasGone is true - null if they gave up before
+  // guessing correctly (see PASS_TURN).
+  timeUsedSeconds: number | null;
 }
 
-export type WordHeadLogEntryType = "question" | "guess" | "system";
+export type WordHeadLogEntryType = "hint" | "guess" | "system";
 
 export interface WordHeadLogEntry {
   id: string;
   type: WordHeadLogEntryType;
-  userId: string | null; // asker/guesser userId - null for a system message
+  userId: string | null; // hinter/guesser userId - null for a system message
   username: string | null;
-  // Question text (may be null - in-person players can just ask out loud),
+  // Hint text (may be null - in-person players can just say it out loud),
   // the guessed word, or a system message body.
   text: string | null;
-  // Present once a "question" entry's answer window has resolved.
-  answer?: "YES" | "NO" | "UNSURE";
   // Present only on a "guess" entry.
   guessCorrect?: boolean;
   timestamp: number;
 }
 
-// Fully public - the whole point of the answer window is that every vote is
-// visible to everyone, including the asker, who is trying to work out their
-// own word from the pattern of yes/no/unsure answers. No secret-ballot logic
-// needed here, unlike Spyfall's accusation vote.
-export interface WordHeadAnswerPoll {
-  id: string;
-  askerUserId: string;
-  questionText: string | null;
-  votes: Record<string, "YES" | "NO" | "UNSURE">;
-  endsAt: number;
-}
-
 export interface WordHeadResult {
   summary: string;
+  // userId -> seconds taken (LOWER is better - see the file-level note
+  // above). A player who gave up before guessing gets their elapsed time
+  // up to that point, same as anyone else - see WordHeadGame.handlePassTurn.
   scores: Record<string, number>;
-  correctCount: number;
-  totalPlayers: number;
+  // userIds who genuinely guessed correctly, as opposed to giving up (a
+  // give-up still gets a score entry - see PASS_TURN - but isn't in here).
+  correctUserIds: string[];
+  fastestUserId: string | null;
+  slowestUserId: string | null;
   wordCategory: string | null;
 }
 
@@ -51,35 +56,37 @@ export interface WordHeadPublicState {
   players: WordHeadPublicPlayer[];
   turnOrder: string[];
   currentTurnUserId: string | null;
-  turnEndsAt: number | null;
-  pendingPoll: WordHeadAnswerPoll | null;
+  // When the current player's turn started - null once finished. The
+  // client derives "elapsed so far" itself (Date.now() - this), same
+  // pattern as Timer's countdown but counting up with no end.
+  turnStartedAt: number | null;
   log: WordHeadLogEntry[];
-  roundEndsAt: number | null;
   wordCategory: string | null;
   result: WordHeadResult | null;
 }
 
+// Only ever holds THIS browser's own view.
 export interface WordHeadPrivateState {
-  // Every player's word EXCEPT the caller's own - that IS the whole game,
-  // so getPrivateState must never let userId's own key leak through here.
-  wordsByUserId: Record<string, string>;
+  // The current hot-seat player's word - present for everyone EXCEPT that
+  // player themselves (and null once the round is finished). That's the
+  // whole game, so getPrivateState must never let the up player see this
+  // when it's their own turn.
+  currentWord: string | null;
+  // This viewer's own hint-button cooldown, or null if they can press it
+  // right now. Never another player's cooldown - nobody else's UI needs it.
+  hintCooldownEndsAt: number | null;
   notes: string;
 }
 
 export const WORDHEAD_ACTIONS = {
-  ASK_QUESTION: "wordhead:askQuestion",
-  ANSWER_QUESTION: "wordhead:answerQuestion",
+  HINT: "wordhead:hint",
   GUESS: "wordhead:guess",
   PASS_TURN: "wordhead:passTurn",
   UPDATE_NOTES: "wordhead:updateNotes",
 } as const;
 
-export interface AskQuestionPayload {
-  questionText?: string | null;
-}
-
-export interface AnswerQuestionPayload {
-  vote: "YES" | "NO" | "UNSURE";
+export interface HintPayload {
+  hintText?: string | null;
 }
 
 export interface GuessPayload {

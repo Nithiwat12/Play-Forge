@@ -14,17 +14,12 @@ import {
 import {
   WORDHEAD_MIN_PLAYERS,
   WORDHEAD_MAX_PLAYERS,
-  WORDHEAD_TURN_SECONDS,
-  WORDHEAD_ANSWER_WINDOW_SECONDS,
-  WORDHEAD_ROUND_SECONDS,
+  WORDHEAD_HINT_COOLDOWN_SECONDS,
   WORDHEAD_MAX_TEXT_LENGTH,
-  validateAskQuestionPayload,
-  validateAnswerPayload,
+  validateHintPayload,
   validateGuessPayload,
   validateUpdateNotesPayload,
   isCorrectGuess,
-  scoreForQuestionsUsed,
-  resolveMajorityAnswer,
 } from "./WordHeadRules";
 
 export type { WordHeadConfig };
@@ -41,44 +36,39 @@ function shuffle<T>(items: T[]): T[] {
 }
 
 /**
- * WordHead ("ทายคำบนหัว") engine - a Hedbanz-style game where every player
- * is secretly assigned a word they themselves cannot see, and must guess it
- * by asking the group yes/no/unsure questions. Designed, like Spyfall,
- * to work identically whether players are sitting together in person or
- * joining online - questionText is always optional so an in-person group
- * can just ask out loud and only tap the button.
+ * WordHead ("ทายคำบนหัว") engine - hot-seat mode. One player at a time gets
+ * a word only they can't see; everyone else can see it and help by pressing
+ * a rate-limited "give a hint" button (text optional, so an in-person group
+ * can just say hints out loud). The up player keeps guessing until they get
+ * it right or gives up - a stopwatch measures how long they took, which
+ * doubles as the whole scoring system (lower is better). Once every player
+ * has had their turn, the round ends and shows everyone's times.
  */
 export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateState> {
   readonly slug = "wordhead";
 
   private config: WordHeadConfig;
-  private wordsByUserId: Map<string, string> = new Map();
   private wordCategory: string | null = null;
+  private remainingWords: WordHeadWord[] = [];
+  private fullWordPool: WordHeadWord[] = [];
+
   private turnOrder: string[] = [];
   private currentTurnIndex = -1;
   private currentTurnUserId: string | null = null;
+  private currentWord: string | null = null;
+  private turnStartedAt: number | null = null;
+
+  private hasGone: Set<string> = new Set();
   private guessedCorrectly: Set<string> = new Set();
-  private questionsUsedByUserId: Map<string, number> = new Map();
-  private scores: Map<string, number> = new Map();
+  private timeUsedByUserId: Map<string, number> = new Map();
+
+  private hintCooldownUntilByUserId: Map<string, number> = new Map();
   private log: WordHeadLogEntry[] = [];
   private notesByUserId: Map<string, string> = new Map();
   private disconnected: Set<string> = new Set();
 
   private phase: WordHeadPhase = "TURN";
-  private pendingPoll: {
-    id: string;
-    askerUserId: string;
-    questionText: string | null;
-    votes: Map<string, "YES" | "NO" | "UNSURE">;
-    endsAt: number;
-  } | null = null;
-
   private roundResult: WordHeadResult | null = null;
-
-  private roundEndsAt: number | null = null;
-  private roundTimer: NodeJS.Timeout | null = null;
-  private turnEndsAt: number | null = null;
-  private stepTimer: NodeJS.Timeout | null = null;
 
   constructor(roomId: string, config?: WordHeadConfig) {
     super(roomId);
@@ -94,45 +84,32 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     }
 
     const category = this.config.categoryMode === "FIXED" ? this.config.category : undefined;
-    const pool = getWordPool(category);
+    this.fullWordPool = getWordPool(category);
     this.wordCategory = category ?? null;
+    this.remainingWords = shuffle(this.fullWordPool);
 
-    const playerIds = this.getPlayers().map((p) => p.userId);
-    const words = this.pickWordsForPlayers(pool, playerIds.length);
-    playerIds.forEach((userId, i) => {
-      this.wordsByUserId.set(userId, words[i].text);
-      this.scores.set(userId, 0);
-      this.questionsUsedByUserId.set(userId, 0);
-    });
-
-    this.turnOrder = shuffle(playerIds);
+    this.turnOrder = shuffle(this.getPlayers().map((p) => p.userId));
     this.currentTurnIndex = -1;
 
     this.started = true;
-    this.roundEndsAt = Date.now() + WORDHEAD_ROUND_SECONDS * 1000;
-    this.roundTimer = setTimeout(() => this.forceEndRound(), WORDHEAD_ROUND_SECONDS * 1000);
-
     this.advanceTurn();
   }
 
-  // Picks one word per player. Uses distinct words when the pool is large
-  // enough (more interesting - nobody can piggyback off overhearing a
-  // duplicate); falls back to sampling with replacement if the chosen
-  // category pool is too small for the room size.
-  private pickWordsForPlayers(pool: WordHeadWord[], count: number): WordHeadWord[] {
-    if (pool.length >= count) {
-      return shuffle(pool).slice(0, count);
+  // Pops the next word off the shuffled pool (so a match doesn't repeat a
+  // word until every word in the category has been used once); reshuffles
+  // a fresh pool in the rare case a match somehow needs more words than the
+  // category has (more turns than words only happens if this game grows a
+  // "play again with the same players" loop that outlives one word pool).
+  private nextWord(): string {
+    if (this.remainingWords.length === 0) {
+      this.remainingWords = shuffle(this.fullWordPool);
     }
-    const result: WordHeadWord[] = [];
-    for (let i = 0; i < count; i++) {
-      result.push(pool[Math.floor(Math.random() * pool.length)]);
-    }
-    return result;
+    return this.remainingWords.pop()!.text;
   }
 
-  // Players who leave mid-round keep their word/score intact and stay in the
-  // turn rotation (in case they reconnect) - just marked disconnected so the
-  // client can show that, mirroring SpyfallGame's approach exactly.
+  // Players who leave mid-round keep their progress intact and stay in the
+  // turn rotation (in case they reconnect) - just marked disconnected so
+  // the client can show that, mirroring SpyfallGame's approach exactly.
   removePlayer(userId: string): void {
     if (!this.started) {
       super.removePlayer(userId);
@@ -156,11 +133,8 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     }
 
     switch (actionType) {
-      case WORDHEAD_ACTIONS.ASK_QUESTION:
-        this.handleAskQuestion(userId, validateAskQuestionPayload(payload));
-        break;
-      case WORDHEAD_ACTIONS.ANSWER_QUESTION:
-        this.handleAnswerQuestion(userId, validateAnswerPayload(payload).vote);
+      case WORDHEAD_ACTIONS.HINT:
+        this.handleHint(userId, validateHintPayload(payload));
         break;
       case WORDHEAD_ACTIONS.GUESS:
         this.handleGuess(userId, validateGuessPayload(payload).guessText);
@@ -176,89 +150,43 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     }
   }
 
-  private requireCurrentTurn(userId: string): void {
-    if (this.currentTurnUserId !== userId) {
-      throw new GameActionError("ยังไม่ถึงตาคุณ");
+  // Anyone except the current up player can give a hint, any time, as often
+  // as their own personal cooldown allows - there's no shared/global
+  // cooldown, each player tracks their own.
+  private handleHint(userId: string, payload: { hintText?: string | null }): void {
+    if (this.phase !== "TURN" || !this.currentTurnUserId) {
+      throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
     }
-    if (this.phase !== "TURN") {
-      throw new GameActionError("ตอนนี้ไม่ใช่ช่วงที่ถามหรือทายได้");
+    if (userId === this.currentTurnUserId) {
+      throw new GameActionError("คุณให้คำใบ้ตัวเองไม่ได้");
     }
-  }
+    const cooldownUntil = this.hintCooldownUntilByUserId.get(userId);
+    if (cooldownUntil && Date.now() < cooldownUntil) {
+      throw new GameActionError("รอคูลดาวน์ก่อนถึงจะให้คำใบ้อีกครั้งได้");
+    }
 
-  private handleAskQuestion(userId: string, payload: { questionText?: string | null }): void {
-    this.requireCurrentTurn(userId);
-
-    const asker = this.players.get(userId)!;
-    const id = randomUUID();
-    this.pendingPoll = {
-      id,
-      askerUserId: userId,
-      questionText: payload.questionText ?? null,
-      votes: new Map(),
-      endsAt: Date.now() + WORDHEAD_ANSWER_WINDOW_SECONDS * 1000,
-    };
-    this.phase = "ANSWER_WINDOW";
+    this.hintCooldownUntilByUserId.set(userId, Date.now() + WORDHEAD_HINT_COOLDOWN_SECONDS * 1000);
+    const hinter = this.players.get(userId)!;
     this.appendLog({
-      id,
-      type: "question",
+      id: randomUUID(),
+      type: "hint",
       userId,
-      username: asker.username,
-      text: payload.questionText ?? null,
+      username: hinter.username,
+      text: payload.hintText ?? null,
       timestamp: Date.now(),
     });
-    this.beginStepTimer(WORDHEAD_ANSWER_WINDOW_SECONDS, () => this.resolveAnswerWindow());
-  }
-
-  // Anyone except the asker can vote - including players who already
-  // guessed their own word correctly, since they already know every word
-  // and their continued participation keeps the crowd-vote meaningful.
-  private handleAnswerQuestion(userId: string, vote: "YES" | "NO" | "UNSURE"): void {
-    if (this.phase !== "ANSWER_WINDOW" || !this.pendingPoll) {
-      throw new GameActionError("ตอนนี้ไม่มีคำถามที่รอคำตอบอยู่");
-    }
-    if (userId === this.pendingPoll.askerUserId) {
-      throw new GameActionError("คุณตอบคำถามของตัวเองไม่ได้");
-    }
-    this.pendingPoll.votes.set(userId, vote);
-
-    const eligibleVoters = this.getPlayers().filter((p) => p.userId !== this.pendingPoll!.askerUserId).length;
-    if (this.pendingPoll.votes.size >= eligibleVoters) {
-      this.resolveAnswerWindow();
-    } else {
-      this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
-    }
-  }
-
-  private resolveAnswerWindow(): void {
-    if (!this.pendingPoll) return;
-    const poll = this.pendingPoll;
-    this.pendingPoll = null;
-
-    const votesObj: Record<string, "YES" | "NO" | "UNSURE"> = {};
-    poll.votes.forEach((v, k) => (votesObj[k] = v));
-    const answer = resolveMajorityAnswer(votesObj);
-
-    const entry = this.log.find((l) => l.id === poll.id);
-    if (entry) entry.answer = answer;
-
-    this.questionsUsedByUserId.set(poll.askerUserId, (this.questionsUsedByUserId.get(poll.askerUserId) ?? 0) + 1);
-
-    this.phase = "TURN";
-    this.advanceTurn();
   }
 
   private handleGuess(userId: string, guessText: string): void {
-    this.requireCurrentTurn(userId);
-    if (this.guessedCorrectly.has(userId)) {
-      throw new GameActionError("คุณทายคำของตัวเองถูกไปแล้ว");
+    if (this.phase !== "TURN" || userId !== this.currentTurnUserId) {
+      throw new GameActionError("ยังไม่ถึงตาคุณ");
     }
-    const word = this.wordsByUserId.get(userId);
-    if (!word) {
-      throw new GameActionError("ไม่พบคำของคุณ");
+    if (!this.currentWord) {
+      throw new GameActionError("ไม่พบคำของตานี้");
     }
 
     const guesser = this.players.get(userId)!;
-    const correct = isCorrectGuess(guessText, word);
+    const correct = isCorrectGuess(guessText, this.currentWord);
 
     this.appendLog({
       id: randomUUID(),
@@ -271,19 +199,43 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     });
 
     if (correct) {
-      this.guessedCorrectly.add(userId);
-      const questionsUsed = this.questionsUsedByUserId.get(userId) ?? 0;
-      const points = scoreForQuestionsUsed(questionsUsed);
-      this.scores.set(userId, (this.scores.get(userId) ?? 0) + points);
-      this.appendSystemLog(`${guesser.username} ทายคำของตัวเองถูกต้อง! คำคือ "${word}" (+${points} คะแนน)`);
+      const word = this.currentWord;
+      const elapsedSeconds = this.finishTurn(userId, true);
+      this.appendSystemLog(
+        `${guesser.username} ทายถูกต้อง! คำคือ "${word}" (ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที)`
+      );
+      this.advanceTurn();
     }
+    // A wrong guess doesn't end the turn or cost anything beyond the time
+    // already spent thinking of it - the stopwatch just keeps running.
+  }
 
+  // Voluntary give-up: locks in however long they've spent so far as their
+  // final time (same bucket as a correct guess, just flagged as not
+  // guessed) rather than leaving the round to hang forever on one stuck
+  // word. Exists purely as a safety valve - there's no forced turn timeout.
+  private handlePassTurn(userId: string): void {
+    if (this.phase !== "TURN" || userId !== this.currentTurnUserId) {
+      throw new GameActionError("ยังไม่ถึงตาคุณ");
+    }
+    const passer = this.players.get(userId)!;
+    const word = this.currentWord;
+    const elapsedSeconds = this.finishTurn(userId, false);
+    this.appendSystemLog(
+      `${passer.username} ขอข้ามตา (คำคือ "${word}") - ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที`
+    );
     this.advanceTurn();
   }
 
-  private handlePassTurn(userId: string): void {
-    this.requireCurrentTurn(userId);
-    this.advanceTurn();
+  // Shared bookkeeping for however a turn ends (correct guess or give-up) -
+  // stops the stopwatch and records the result, but does NOT advance the
+  // turn or emit itself, so callers can log their own message first.
+  private finishTurn(userId: string, guessedCorrectly: boolean): number {
+    const elapsedSeconds = this.turnStartedAt ? (Date.now() - this.turnStartedAt) / 1000 : 0;
+    this.hasGone.add(userId);
+    if (guessedCorrectly) this.guessedCorrectly.add(userId);
+    this.timeUsedByUserId.set(userId, elapsedSeconds);
+    return elapsedSeconds;
   }
 
   // Deliberately does NOT emit STATE_CHANGED - broadcasting a full state
@@ -295,74 +247,61 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     this.notesByUserId.set(userId, notes);
   }
 
-  // Moves to the next player (in turnOrder, wrapping) who hasn't already
-  // guessed their word correctly. Concludes the round once nobody's left.
+  // Moves to the next player in turnOrder (strictly forward, one pass
+  // through the whole roster - nobody goes twice) who hasn't gone yet.
+  // Concludes the round once everyone has had their turn.
   private advanceTurn(): void {
     if (this.finished) return;
-    const anyoneLeft = this.turnOrder.some((id) => !this.guessedCorrectly.has(id));
-    if (!anyoneLeft) {
-      this.concludeRound("ผู้เล่นทุกคนทายคำของตัวเองถูกหมดแล้ว!");
-      return;
-    }
 
     let idx = this.currentTurnIndex;
-    for (let i = 0; i < this.turnOrder.length; i++) {
-      idx = (idx + 1) % this.turnOrder.length;
+    while (idx + 1 < this.turnOrder.length) {
+      idx += 1;
       const candidate = this.turnOrder[idx];
-      if (!this.guessedCorrectly.has(candidate)) {
+      if (!this.hasGone.has(candidate)) {
         this.currentTurnIndex = idx;
         this.beginTurn(candidate);
         return;
       }
     }
+
+    this.concludeRound("ทุกคนทายคำของตัวเองครบแล้ว!");
   }
 
   private beginTurn(userId: string): void {
     this.currentTurnUserId = userId;
+    this.currentWord = this.nextWord();
+    this.turnStartedAt = Date.now();
     this.phase = "TURN";
-    this.beginStepTimer(WORDHEAD_TURN_SECONDS, () => this.onTurnTimeout());
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
 
-  private onTurnTimeout(): void {
-    if (this.finished || this.phase !== "TURN" || !this.currentTurnUserId) return;
-    const username = this.players.get(this.currentTurnUserId)?.username ?? "ไม่ทราบชื่อ";
-    this.appendSystemLog(`${username} หมดเวลา ข้ามไปตาถัดไป`);
-    this.advanceTurn();
-  }
-
-  private beginStepTimer(seconds: number, onFire: () => void): void {
-    if (this.stepTimer) clearTimeout(this.stepTimer);
-    this.turnEndsAt = Date.now() + seconds * 1000;
-    this.stepTimer = setTimeout(onFire, seconds * 1000);
-  }
-
-  private forceEndRound(): void {
-    if (this.finished) return;
-    this.concludeRound("หมดเวลาทั้งรอบ!");
-  }
-
   private concludeRound(reason: string): void {
-    if (this.stepTimer) {
-      clearTimeout(this.stepTimer);
-      this.stepTimer = null;
-    }
-    if (this.roundTimer) {
-      clearTimeout(this.roundTimer);
-      this.roundTimer = null;
-    }
-    this.pendingPoll = null;
+    this.currentTurnUserId = null;
+    this.currentWord = null;
+    this.turnStartedAt = null;
     this.phase = "FINISHED";
     this.finished = true;
 
     const scores: Record<string, number> = {};
-    this.scores.forEach((v, k) => (scores[k] = v));
+    this.timeUsedByUserId.forEach((seconds, userId) => (scores[userId] = seconds));
+
+    let fastestUserId: string | null = null;
+    let slowestUserId: string | null = null;
+    for (const [userId, seconds] of this.timeUsedByUserId.entries()) {
+      if (fastestUserId === null || seconds < (this.timeUsedByUserId.get(fastestUserId) ?? Infinity)) {
+        fastestUserId = userId;
+      }
+      if (slowestUserId === null || seconds > (this.timeUsedByUserId.get(slowestUserId) ?? -Infinity)) {
+        slowestUserId = userId;
+      }
+    }
 
     this.roundResult = {
       summary: reason,
       scores,
-      correctCount: this.guessedCorrectly.size,
-      totalPlayers: this.players.size,
+      correctUserIds: Array.from(this.guessedCorrectly),
+      fastestUserId,
+      slowestUserId,
       wordCategory: this.wordCategory,
     };
 
@@ -390,44 +329,27 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
         userId: p.userId,
         username: p.username,
         connected: !this.disconnected.has(p.userId),
+        hasGone: this.hasGone.has(p.userId),
         guessedCorrectly: this.guessedCorrectly.has(p.userId),
-        questionsUsed: this.questionsUsedByUserId.get(p.userId) ?? 0,
-        score: this.scores.get(p.userId) ?? 0,
+        timeUsedSeconds: this.timeUsedByUserId.get(p.userId) ?? null,
       })),
       turnOrder: this.turnOrder,
       currentTurnUserId: this.currentTurnUserId,
-      turnEndsAt: this.turnEndsAt,
-      pendingPoll: this.publicPendingPoll(),
+      turnStartedAt: this.turnStartedAt,
       log: this.log,
-      roundEndsAt: this.roundEndsAt,
       wordCategory: this.wordCategory,
       result: this.finished ? this.roundResult : null,
     };
   }
 
-  private publicPendingPoll(): WordHeadPublicState["pendingPoll"] {
-    if (!this.pendingPoll) return null;
-    const votes: Record<string, "YES" | "NO" | "UNSURE"> = {};
-    this.pendingPoll.votes.forEach((v, k) => (votes[k] = v));
-    return {
-      id: this.pendingPoll.id,
-      askerUserId: this.pendingPoll.askerUserId,
-      questionText: this.pendingPoll.questionText,
-      votes,
-      endsAt: this.pendingPoll.endsAt,
-    };
-  }
-
-  // The one place a player's own secret word must never appear - everyone
-  // else's word IS visible to them (that's how the game works), only their
-  // own key is left out of the map.
+  // The one place the up player's own word must never appear - everyone
+  // else sees it (that's how the game works), only the current guesser's
+  // view has it hidden.
   getPrivateState(userId: string): WordHeadPrivateState {
-    const wordsByUserId: Record<string, string> = {};
-    this.wordsByUserId.forEach((word, ownerUserId) => {
-      if (ownerUserId !== userId) wordsByUserId[ownerUserId] = word;
-    });
+    const isUp = userId === this.currentTurnUserId;
     return {
-      wordsByUserId,
+      currentWord: isUp ? null : this.currentWord,
+      hintCooldownEndsAt: this.hintCooldownUntilByUserId.get(userId) ?? null,
       notes: this.notesByUserId.get(userId) ?? "",
     };
   }
@@ -435,14 +357,16 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   end(): GameResult {
     if (!this.roundResult) {
       // Ended abnormally (e.g. host/room force-stop) before a natural
-      // conclusion was reached - record it without crediting new scores.
+      // conclusion was reached - record it without crediting new times.
       this.concludeRound("เกมถูกจบก่อนที่จะได้ผลลัพธ์");
     }
 
     const result = this.roundResult!;
-    const winnerUserIds = Object.entries(result.scores)
-      .filter(([, score]) => score > 0)
-      .map(([userId]) => userId);
+    // Lower time is better here (unlike every other game's points), so the
+    // "winner" is whoever was fastest - see WordHeadState.ts's file-level
+    // note; GameResult.tsx and any multi-round summary must know to invert
+    // their usual highest-wins assumption for this game's `scores`.
+    const winnerUserIds = result.fastestUserId ? [result.fastestUserId] : [];
 
     return {
       summary: result.summary,

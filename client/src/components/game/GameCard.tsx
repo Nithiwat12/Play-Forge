@@ -5,13 +5,20 @@ import { Button } from "../common/Button";
 import { Card } from "../common/Card";
 import { HowToPlayModal } from "./HowToPlayModal";
 
+// Per-game library-card icon, keyed by slug - a future game just adds its
+// own entry here; anything unrecognized falls back to the generic mask.
+const GAME_ICONS: Record<string, string> = {
+  spyfall: "🕵️",
+  wordhead: "🧠",
+};
+
 export function GameCard({ game }: { game: Game }) {
   const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   return (
     <Card className="flex flex-col gap-4">
       <div className="relative flex h-32 items-center justify-center rounded-xl bg-gradient-to-br from-brand-800 to-slate-900 text-4xl">
-        🎭
+        {GAME_ICONS[game.slug] ?? "🎭"}
         <button
           onClick={() => setShowHowToPlay(true)}
           title="วิธีเล่น"
