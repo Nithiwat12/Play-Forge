@@ -452,25 +452,16 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.votes.set(voterId, targetUserId);
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
 
-    if (this.votes.size >= this.players.size || this.hasLockedInMajority()) {
-      this.resolveByVotes("เสียงส่วนมากโหวตครบแล้ว");
+    // Only resolves early once literally everyone has cast a vote - no more
+    // ending the round the moment one target mathematically can't be
+    // caught, even though that's sooner. Someone who never votes (off
+    // thinking, or disconnected) just means the round rides out the full
+    // SPYFALL_VOTING_SECONDS clock instead (see forceEndByTimer) - the
+    // timer stays as the fallback, this just isn't a second, earlier way
+    // for the round to end.
+    if (this.votes.size >= this.players.size) {
+      this.resolveByVotes("ทุกคนโหวตครบแล้ว");
     }
-  }
-
-  // True once a single target already holds strictly more than half of all
-  // players' votes - at that point no combination of however anyone still
-  // undecided ends up voting could change who has the most votes, so
-  // there's no reason to keep the round open waiting for full turnout.
-  private hasLockedInMajority(): boolean {
-    const counts = new Map<string, number>();
-    for (const targetUserId of this.votes.values()) {
-      counts.set(targetUserId, (counts.get(targetUserId) ?? 0) + 1);
-    }
-    const required = requiredPollMajority(this.players.size);
-    for (const count of counts.values()) {
-      if (count >= required) return true;
-    }
-    return false;
   }
 
   // The Spy's own "surrender" - a separate, Spy-only escape hatch from the
@@ -536,6 +527,19 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (this.finished) return;
     if (this.phase === "REVEALED") {
       this.resolveRevealedTimeout();
+      return;
+    }
+    // The initial discussion clock running out on its own (nobody ever
+    // called a vote, or a call-vote poll never reached majority) used to
+    // end the round outright - "nobody voted, the Spy escapes" - the
+    // instant it hit zero. That's not a real chance to accuse anyone, so
+    // now it opens voting instead, same as a successful call-vote poll
+    // would, and the round only actually concludes once THAT clock runs
+    // out (or everyone votes). A debate-round timeout is different - that
+    // clock IS already extra voting time (see resolveByVotes), so it
+    // still resolves normally below instead of reopening voting again.
+    if (this.phase === "IN_PROGRESS" && !this.debateCandidateIds) {
+      this.openVoting("หมดเวลาพูดคุย! เข้าสู่โหมดโหวตหาสปายทันที");
       return;
     }
     this.resolveByVotes(this.phase === "VOTING" ? "หมดเวลาโหวต/ตอบ!" : "หมดเวลาแล้ว");

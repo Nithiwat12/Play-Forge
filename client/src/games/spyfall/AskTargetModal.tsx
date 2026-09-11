@@ -1,22 +1,24 @@
 import { Card } from "../../components/common/Card";
+import { Button } from "../../components/common/Button";
 import type { SpyfallPublicPlayer } from "./types";
 
 interface AskTargetModalProps {
   players: SpyfallPublicPlayer[];
   selfUserId?: string;
   onSelect: (targetUserId: string) => void;
+  onClose: () => void;
 }
 
-// Pops up automatically for whoever's turn it is to ask (askerUserId ===
-// selfUserId, before they've picked anyone yet - see SpyfallGame.tsx's
-// isMyAskTurn/pendingAskTarget). Picking a name here just closes the popup
-// and hands the pick back to the normal page, where the compose box (with
-// the optional question text field) takes over - typing into a box buried
-// inside a full-screen overlay felt cramped, so composing happens after
-// the popup is already gone. No close button: it's this player's turn, and
-// picking someone is the only way to move on - same idea as WordHead's
-// GuessJudgeModal.
-export function AskTargetModal({ players, selfUserId, onSelect }: AskTargetModalProps) {
+// Opened on demand via the "ถามคนต่อไป" button in the "ถาม-ตอบ" card, once
+// it's this player's turn to pick someone (see SpyfallGame.tsx's
+// isMyAskTurn/isAskModalOpen) - it no longer pops itself open
+// automatically. Picking a name here closes the popup and hands the pick
+// back to the normal page, where the compose box (with the optional
+// question text field) takes over - typing into a box buried inside a
+// full-screen overlay felt cramped, so composing happens after the popup
+// is already gone. Closable without picking anyone (per GuessModal's
+// pattern) since it's opened by choice now, not forced.
+export function AskTargetModal({ players, selfUserId, onSelect, onClose }: AskTargetModalProps) {
   const askable = players.filter((p) => p.userId !== selfUserId && p.connected);
 
   return (
@@ -43,6 +45,12 @@ export function AskTargetModal({ players, selfUserId, onSelect }: AskTargetModal
               {p.username}
             </button>
           ))}
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <Button variant="secondary" onClick={onClose}>
+            ปิดไปคิดต่อ
+          </Button>
         </div>
       </Card>
     </div>
