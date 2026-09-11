@@ -269,24 +269,20 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   }
 
   // Ends the currently-open call-vote poll and acts on the outcome.
-  // `forcedResult`, when given, skips tallying (used once a majority has
-  // already been reached, or once everyone has responded); otherwise
-  // resolves from whatever responses came in before the timeout - a tie or
-  // nobody responding defaults to NOT opening the vote, same philosophy as
-  // the room-level continue-play poll.
+  // handleVoteCallResponse only ever calls this WITHOUT a forcedResult once
+  // its own timeout fires - and by then a genuine majority was never
+  // reached either way (a majority reached earlier always resolves right
+  // there, with an explicit forcedResult). So a bare timeout here always
+  // defaults to NOT opening, exactly as the poll UI promises ("ถ้าไม่ตอบ
+  // ภายใน X วินาที จะถือว่าเล่นต่อ") - it must never fall back to comparing
+  // partial yes/no counts, since the lone requester's own auto-accept vote
+  // would then count as a "majority" all by itself the moment nobody else
+  // responds in time.
   private resolveVotePoll(forcedResult?: boolean): void {
     if (!this.votePoll) return;
     clearTimeout(this.votePoll.timeout);
 
-    let willOpen: boolean;
-    if (forcedResult !== undefined) {
-      willOpen = forcedResult;
-    } else {
-      let yes = 0;
-      let no = 0;
-      for (const v of this.votePoll.votes.values()) (v ? yes++ : no++);
-      willOpen = yes > no;
-    }
+    const willOpen = forcedResult ?? false;
     this.votePoll = null;
 
     if (willOpen) {
@@ -324,10 +320,14 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.appendSystemLog(systemMessage); // also emits STATE_CHANGED
   }
 
-  // Anyone currently in the round can cast an accusation vote here - the
-  // Spy included. Letting the Spy vote too (typically as a decoy, since
-  // they already know who they are) keeps their `hasVoted` flag looking
-  // the same as everyone else's instead of being a dead giveaway.
+  // Anyone currently in the round can cast (or freely change - re-voting
+  // just overwrites the previous target, no cooldown of any kind here)
+  // an accusation vote. The Spy can vote too, typically as a decoy since
+  // they already know who they are - and their vote is required for the
+  // round to auto-resolve just like everyone else's, so the round never
+  // ends without genuinely giving the Spy a chance to have voted (the only
+  // way it ends without that is the SPYFALL_VOTING_SECONDS clock running
+  // out - see forceEndByTimer).
   private handleVote(voterId: string, targetUserId: string): void {
     if (this.phase !== "VOTING") {
       throw new GameActionError("ต้องเปิดโหมดโหวตก่อนถึงจะโหวตได้ - กด \"ขอเปิดโหวต\" ก่อน");
@@ -342,12 +342,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.votes.set(voterId, targetUserId);
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
 
-    // The Spy's own vote (if they bother to cast one) is optional camouflage
-    // and doesn't count toward this - counted separately so a Spy who votes
-    // early can never make the round resolve before every OTHER player has
-    // actually had their say.
-    const nonSpyVotesCast = Array.from(this.votes.keys()).filter((id) => id !== this.spyUserId).length;
-    if (nonSpyVotesCast >= this.players.size - 1) {
+    if (this.votes.size >= this.players.size) {
       this.resolveByVotes("ทุกคนโหวตครบแล้ว");
     }
   }

@@ -180,29 +180,21 @@ async function openContinuePoll(io: AppServer, roomId: string): Promise<void> {
   });
 }
 
-// Ends the poll and acts on the outcome. `forcedResult`, when given, skips
-// tallying (used once a majority has already been reached one way or the
-// other, or once everyone has voted); otherwise resolves from whatever
-// votes came in before the timeout - a tie, or nobody voting at all,
-// defaults to NOT continuing rather than trapping the room in limbo.
+// Ends the poll and acts on the outcome. The "game:continueVote" handler
+// only ever calls this WITHOUT a forcedResult once its own timeout fires -
+// a majority reached earlier always resolves right there with an explicit
+// forcedResult already computed. So a bare timeout here always defaults to
+// NOT continuing, rather than falling back to comparing whatever partial
+// yes/no counts happened to come in - which would let a single early "yes"
+// count as a majority all by itself the moment nobody else votes in time,
+// rather than actually trapping the room in limbo.
 async function resolveContinuePoll(io: AppServer, roomId: string, forcedResult?: boolean): Promise<void> {
   const poll = continuePolls.get(roomId);
   if (!poll) return;
   clearTimeout(poll.timeout);
   continuePolls.delete(roomId);
 
-  let willContinue: boolean;
-  if (forcedResult !== undefined) {
-    willContinue = forcedResult;
-  } else {
-    let yes = 0;
-    let no = 0;
-    for (const wantsContinue of poll.votes.values()) {
-      if (wantsContinue) yes++;
-      else no++;
-    }
-    willContinue = yes > no;
-  }
+  const willContinue = forcedResult ?? false;
 
   if (!willContinue) {
     io.to(roomId).emit("game:continueResolved", { roomId, willContinue: false, nextRoundAt: null });
