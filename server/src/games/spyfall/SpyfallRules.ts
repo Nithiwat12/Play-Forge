@@ -19,6 +19,14 @@ export const SPYFALL_TIE_EXTENSION_SECONDS = 5 * 60;
 // Safety cap so a group that keeps tying can't stall the round forever.
 export const SPYFALL_MAX_TIE_EXTENSIONS = 2;
 
+// Once voting opens (either the group unanimously calling for it, or the
+// Spy's own unilateral stop), this is how long everyone has to finish -
+// the Spy to submit their final answer, the rest of the group to finish
+// accusing someone - before the round resolves from whatever's been
+// submitted so far. Deliberately the same clock for both: they open at
+// the same moment and this one timer is the shared deadline for both.
+export const SPYFALL_VOTING_SECONDS = 5 * 60;
+
 // --- Payload validation -----------------------------------------------
 // Every payload arriving over the socket is untyped `unknown` at the
 // boundary; these functions are the single place that turns it into a

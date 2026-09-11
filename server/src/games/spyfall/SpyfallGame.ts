@@ -19,6 +19,7 @@ import {
   SPYFALL_MAX_TEXT_LENGTH,
   SPYFALL_TIE_EXTENSION_SECONDS,
   SPYFALL_MAX_TIE_EXTENSIONS,
+  SPYFALL_VOTING_SECONDS,
   validateQuestionPayload,
   validateAnswerPayload,
   validateVotePayload,
@@ -214,17 +215,16 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     }
   }
 
-  // Freezes the discussion clock the moment voting opens, whichever way it
-  // opened (everyone calling for a vote, or the Spy's own unilateral stop) -
-  // nobody should get timed out mid-vote or mid-answer, since the round now
-  // resolves from a vote or a guess, not the clock.
+  // Replaces the discussion clock with a fresh SPYFALL_VOTING_SECONDS
+  // countdown the moment voting opens, whichever way it opened (everyone
+  // calling for a vote, or the Spy's own unilateral stop) - the same
+  // deadline serves both the Spy (to submit their final answer) and the
+  // rest of the group (to finish accusing someone). If it runs out before
+  // either happens, forceEndByTimer resolves the round from whatever was
+  // submitted so far, exactly like a discussion-phase timeout does.
   private openVoting(systemMessage: string): void {
     this.phase = "VOTING";
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    this.timerEndsAt = null;
+    this.beginTimer(SPYFALL_VOTING_SECONDS);
     this.appendSystemLog(systemMessage); // also emits STATE_CHANGED
   }
 
@@ -242,7 +242,11 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.votes.set(voterId, targetUserId);
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
 
-    if (this.votes.size >= this.players.size) {
+    // The Spy never casts a vote (they submit a guess instead), so the
+    // group is done as soon as every OTHER player has - no need to wait
+    // out the rest of the voting timer once that happens.
+    const votersExpected = this.players.size - 1;
+    if (this.votes.size >= votersExpected) {
       this.resolveByVotes("ทุกคนโหวตครบแล้ว");
     }
   }
@@ -272,9 +276,13 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     });
   }
 
+  // Fires from whichever timer is currently running - the discussion
+  // clock, a tie-extension, or the voting/answer deadline - so the reason
+  // text is picked from the phase that was active when it expired, rather
+  // than always saying "discussion time's up" even during a vote.
   private forceEndByTimer(): void {
     if (this.finished) return;
-    this.resolveByVotes("หมดเวลาแล้ว");
+    this.resolveByVotes(this.phase === "VOTING" ? "หมดเวลาโหวต/ตอบ!" : "หมดเวลาแล้ว");
   }
 
   private resolveByVotes(reasonPrefix: string): void {
@@ -381,7 +389,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   getPublicState(): SpyfallPublicState {
     return {
       phase: this.phase,
-      timerDurationSeconds: this.discussionSeconds,
+      timerDurationSeconds: this.phase === "VOTING" ? SPYFALL_VOTING_SECONDS : this.discussionSeconds,
       timerEndsAt: this.timerEndsAt,
       players: this.getPlayers().map((p) => ({
         userId: p.userId,

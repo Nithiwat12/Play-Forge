@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "../../components/common/Card";
 import { Button } from "../../components/common/Button";
@@ -40,8 +40,11 @@ export function SpyfallGame({
   const [actionError, setActionError] = useState<string | null>(null);
 
   // The Spy's own scratchpad - which locations they've personally crossed
-  // off while thinking. Purely local: never sent to the server, reset
-  // whenever a fresh round's timer starts (new timerEndsAt).
+  // off while thinking. Purely local: never sent to the server. Kept
+  // across the IN_PROGRESS -> VOTING transition (and through a tie
+  // extension back to IN_PROGRESS) since the answer popup reuses it to
+  // show what's already been ruled out - only a genuinely new round
+  // (FINISHED -> IN_PROGRESS) clears it.
   const [eliminated, setEliminated] = useState<Set<string>>(new Set());
   const toggleEliminated = useCallback((name: string) => {
     setEliminated((prev) => {
@@ -51,6 +54,11 @@ export function SpyfallGame({
       return next;
     });
   }, []);
+
+  // Opened on demand via a button on the normal discussion screen (per
+  // "มีปุ่มที่กดแล้วจะมีลิสรายชื่อสถานที่ทั้งหมดเด้งขึ้น") rather than
+  // sitting inline the whole time.
+  const [isLocationListOpen, setIsLocationListOpen] = useState(false);
 
   // The Spy's final-answer popup - opens itself the moment voting starts
   // (either from the group's majority call or the Spy's own unilateral
@@ -70,14 +78,21 @@ export function SpyfallGame({
   const hasCalledVote = Boolean(selfUserId && publicState.voteCallers.includes(selfUserId));
   const matchComplete = scoreboard?.matchComplete ?? false;
 
+  const previousPhaseRef = useRef(publicState.phase);
   useEffect(() => {
-    setEliminated(new Set());
-  }, [publicState.timerEndsAt]);
+    const isNewRound = previousPhaseRef.current === "FINISHED" && publicState.phase === "IN_PROGRESS";
+    previousPhaseRef.current = publicState.phase;
+    if (isNewRound) {
+      setEliminated(new Set());
+      setIsLocationListOpen(false);
+    }
+  }, [publicState.phase]);
 
   useEffect(() => {
     if (isVoting && privateState.isSpy) {
       setIsGuessModalOpen(true);
       setGuessError(null);
+      setIsLocationListOpen(false);
     } else {
       setIsGuessModalOpen(false);
     }
@@ -205,12 +220,19 @@ export function SpyfallGame({
 
         <RoleCard privateState={privateState} />
 
-        {!isFinished && privateState.isSpy && privateState.locationOptions && (
-          <LocationChecklist
-            locations={privateState.locationOptions}
-            eliminated={eliminated}
-            onToggle={toggleEliminated}
-          />
+        {!isFinished && !isVoting && privateState.isSpy && privateState.locationOptions && (
+          <Card className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-300">รายชื่อสถานที่</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                เปิดดูรายชื่อสถานที่ทั้งหมด ไว้กาตัดตัวเลือกส่วนตัวระหว่างฟังคนอื่นคุยกัน
+              </p>
+            </div>
+            <Button variant="secondary" onClick={() => setIsLocationListOpen(true)}>
+              เปิดรายชื่อสถานที่ ({privateState.locationOptions.length - eliminated.size}/
+              {privateState.locationOptions.length})
+            </Button>
+          </Card>
         )}
 
         {isFinished && publicState.result && (
@@ -389,6 +411,9 @@ export function SpyfallGame({
               โหมดโหวต
             </p>
             <h2 className="mt-1 text-lg font-semibold text-white">ถึงเวลาโหวตหาสปายแล้ว!</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              มีเวลา 5 นาทีให้{privateState.isSpy ? "สปายตอบ" : "โหวต"} - ถ้าหมดเวลาจะสรุปผลจากสิ่งที่มีอยู่ตอนนั้นทันที
+            </p>
 
             {privateState.isSpy ? (
               <div className="mt-4 rounded-xl border border-red-800 bg-red-950/50 p-4">
@@ -457,6 +482,15 @@ export function SpyfallGame({
           </div>
         </Card>
       </div>
+
+      {isLocationListOpen && !isVoting && privateState.isSpy && privateState.locationOptions && (
+        <LocationChecklist
+          locations={privateState.locationOptions}
+          eliminated={eliminated}
+          onToggle={toggleEliminated}
+          onClose={() => setIsLocationListOpen(false)}
+        />
+      )}
 
       {isGuessModalOpen && privateState.isSpy && privateState.locationOptions && (
         <GuessModal
