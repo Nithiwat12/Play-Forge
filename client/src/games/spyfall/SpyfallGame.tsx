@@ -35,6 +35,13 @@ export function SpyfallGame({
   scoreboard,
 }: SpyfallGameProps) {
   const navigate = useNavigate();
+  // Set the instant this player picks a name from AskTargetModal - null
+  // means the modal is (or should be) open, non-null means it's closed and
+  // the normal page is showing the compose box to type/send the question
+  // (see the "ถาม-ตอบ" card below). Reset automatically once this player's
+  // ask turn ends, whichever way it ends (see the effect a bit below).
+  const [pendingAskTarget, setPendingAskTarget] = useState<string | null>(null);
+  const [questionText, setQuestionText] = useState("");
   const [answerText, setAnswerText] = useState("");
   const [isAsking, setIsAsking] = useState(false);
   const [isAnswering, setIsAnswering] = useState(false);
@@ -163,14 +170,28 @@ export function SpyfallGame({
   const askerUsername = publicState.askerUserId
     ? usernameByUserId.get(publicState.askerUserId) ?? "ไม่ทราบชื่อ"
     : null;
-  // Pops AskTargetModal open the instant it's this player's turn to pick
-  // someone - closes itself again the moment the server confirms a
-  // question is pending (see handleAskSubmit).
+  // True for this player's whole ask turn - from the instant it becomes
+  // their turn until the server confirms a question is actually pending.
+  // AskTargetModal (name only, no text box) shows while pendingAskTarget is
+  // still null; picking a name there just closes the popup and reveals the
+  // compose box on the normal page instead (see the "ถาม-ตอบ" card below) -
+  // typing a full-screen-overlay text field felt cramped, so the question
+  // itself gets composed after the popup is already gone.
   const isMyAskTurn =
     !isFinished && !isVoting && !isRevealed &&
     publicState.askerUserId === selfUserId && !publicState.pendingQuestion;
   const isMyQuestionToAnswer =
     !isFinished && !isVoting && !isRevealed && publicState.pendingQuestion?.toUserId === selfUserId;
+
+  // Clears the local "who did I pick" pick the instant this ask turn ends
+  // (submitted, or otherwise moved on) so the next time it's this player's
+  // turn, AskTargetModal starts fresh instead of reopening pre-filled.
+  useEffect(() => {
+    if (!isMyAskTurn) {
+      setPendingAskTarget(null);
+      setQuestionText("");
+    }
+  }, [isMyAskTurn]);
 
   const runAction = useCallback(
     async (actionType: string, payload: unknown, onSuccess?: () => void) => {
@@ -185,9 +206,9 @@ export function SpyfallGame({
     [onAction]
   );
 
-  // Called from AskTargetModal, which only shows up when it's actually this
-  // player's turn to ask (see isMyAskTurn below) - text is optional, since
-  // the question itself is often just asked out loud once someone's picked.
+  // Called from the compose box's "ถาม" button, once a target has already
+  // been picked via AskTargetModal - text is optional, since the question
+  // itself is often just asked out loud once someone's picked.
   async function handleAskSubmit(targetUserId: string, text: string) {
     setIsAsking(true);
     try {
@@ -383,6 +404,36 @@ export function SpyfallGame({
               </p>
             )}
 
+            {isMyAskTurn && pendingAskTarget && (
+              <div className="mt-4 rounded-xl border border-brand-700 bg-brand-950/30 p-4">
+                <p className="text-sm text-brand-200">
+                  กำลังจะถาม{" "}
+                  <span className="font-semibold">
+                    {usernameByUserId.get(pendingAskTarget) ?? "ไม่ทราบชื่อ"}
+                  </span>{" "}
+                  - จะพูดถามออกเสียงหรือพิมพ์คำถามก็ได้
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={questionText}
+                    onChange={(e) => setQuestionText(e.target.value)}
+                    placeholder="พิมพ์คำถาม (ไม่จำเป็น)..."
+                    className="flex-1"
+                  />
+                  <Button onClick={() => handleAskSubmit(pendingAskTarget, questionText)} isLoading={isAsking}>
+                    ถาม
+                  </Button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingAskTarget(null)}
+                  className="mt-2 text-xs text-slate-500 hover:text-slate-300 hover:underline"
+                >
+                  เปลี่ยนคนที่จะถาม
+                </button>
+              </div>
+            )}
+
             {isMyQuestionToAnswer && (
               <div className="mt-4 rounded-xl border border-amber-700 bg-amber-950/30 p-4">
                 <p className="text-sm text-amber-200">
@@ -555,14 +606,8 @@ export function SpyfallGame({
         />
       )}
 
-      {isMyAskTurn && (
-        <AskTargetModal
-          players={publicState.players}
-          selfUserId={selfUserId}
-          isSubmitting={isAsking}
-          error={actionError}
-          onSubmit={handleAskSubmit}
-        />
+      {isMyAskTurn && !pendingAskTarget && (
+        <AskTargetModal players={publicState.players} selfUserId={selfUserId} onSelect={setPendingAskTarget} />
       )}
 
       {isGuessModalOpen && privateState.isSpy && privateState.locationOptions && (
