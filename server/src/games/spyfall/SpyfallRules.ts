@@ -6,6 +6,7 @@ import type {
   SpyfallAnswerPayload,
   SpyfallVotePayload,
   SpyfallVoteTally,
+  SpyfallVoteCallResponsePayload,
 } from "./SpyfallState";
 
 export const SPYFALL_MIN_PLAYERS = 3;
@@ -19,7 +20,7 @@ export const SPYFALL_TIE_EXTENSION_SECONDS = 5 * 60;
 // Safety cap so a group that keeps tying can't stall the round forever.
 export const SPYFALL_MAX_TIE_EXTENSIONS = 2;
 
-// Once voting opens (everyone unanimously calling for it, or the
+// Once voting opens (a majority accepting a call-vote poll, or the
 // discussion clock running out), this is how long everyone has to finish -
 // the Spy to submit their final answer, the rest of the group to finish
 // accusing someone - before the round resolves from whatever's been
@@ -30,6 +31,18 @@ export const SPYFALL_MAX_TIE_EXTENSIONS = 2;
 // (SPYFALL_ACTIONS.SURRENDER) - same length, but uncontested: nobody else
 // is racing that clock, since there's no group vote in that path at all.
 export const SPYFALL_VOTING_SECONDS = 5 * 60;
+
+// How long a "someone wants to open the accusation vote" poll waits for
+// responses before resolving from whatever came in (mirrors the room-level
+// continue-play poll's own timeout). Majority accept opens VOTING; a tie,
+// nobody responding, or majority decline all default to staying in
+// discussion instead.
+export const SPYFALL_CALL_VOTE_POLL_SECONDS = 30;
+
+// After a call-vote poll fails to reach a majority "yes", this is how long
+// the room has to wait before anyone can request one again - stops the
+// button being spammed right back the moment it fails.
+export const SPYFALL_CALL_VOTE_COOLDOWN_SECONDS = 2 * 60;
 
 // --- Payload validation -----------------------------------------------
 // Every payload arriving over the socket is untyped `unknown` at the
@@ -83,6 +96,17 @@ export function validateVotePayload(payload: unknown): SpyfallVotePayload {
   return { targetUserId };
 }
 
+export function validateVoteCallResponsePayload(payload: unknown): SpyfallVoteCallResponsePayload {
+  if (typeof payload !== "object" || payload === null) {
+    throw new GameActionError("ข้อมูลไม่ถูกต้อง");
+  }
+  const { accept } = payload as Record<string, unknown>;
+  if (typeof accept !== "boolean") {
+    throw new GameActionError("ข้อมูลไม่ถูกต้อง");
+  }
+  return { accept };
+}
+
 const VALID_LOCATION_NAMES = new Set(SPYFALL_LOCATIONS.map((l) => l.name));
 
 export function validateGuessPayload(payload: unknown): SpyfallGuessPayload {
@@ -100,16 +124,16 @@ export function validateGuessPayload(payload: unknown): SpyfallGuessPayload {
   return { location: trimmed };
 }
 
-// --- Vote call threshold -------------------------------------------------
+// --- Call-vote poll threshold ---------------------------------------------
 
 /**
- * Every current player - the Spy included, with no special-casing - must
- * call for a vote before the group actually moves into the voting phase.
- * The only ways into voting are everyone unanimously agreeing here, or the
- * discussion clock running out.
+ * Majority threshold (more than half) used to resolve the "open the
+ * accusation vote?" poll early in either direction - the same "more than
+ * half" rule the room-level continue-play poll uses. The Spy gets no
+ * special-casing: their response counts exactly like anyone else's.
  */
-export function requiredVoteCallers(playerCount: number): number {
-  return playerCount;
+export function requiredPollMajority(totalPlayers: number): number {
+  return Math.floor(totalPlayers / 2) + 1;
 }
 
 // --- Vote resolution -----------------------------------------------------

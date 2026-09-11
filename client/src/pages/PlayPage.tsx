@@ -66,6 +66,13 @@ export function PlayPage() {
     function handleGameState(payload: { roomId: string; public: unknown; private: unknown }) {
       if (payload.roomId !== useRoomStore.getState().room?.id) return;
       setState(payload.public, payload.private);
+      // Any fresh state push means the next round has actually started (the
+      // only time game:state fires during the "starting next round in X
+      // seconds..." window is startRoundForRoom's own broadcast right as it
+      // begins) - so whatever "play again?" overlay was still showing is
+      // stale now and needs to go, whether the delay ran out on its own or
+      // someone hit "ข้าม" to skip it.
+      setContinueResolution(null);
     }
 
     function handleGameEnd(payload: { scoreboard?: Scoreboard | null }) {

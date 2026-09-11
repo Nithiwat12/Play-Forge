@@ -11,6 +11,7 @@ import {
   type SpyfallPrivateState,
   type SpyfallResult,
   type SpyfallRevealedVote,
+  type SpyfallVoteCallPoll,
 } from "./SpyfallState";
 import {
   SPYFALL_MIN_PLAYERS,
@@ -20,14 +21,26 @@ import {
   SPYFALL_TIE_EXTENSION_SECONDS,
   SPYFALL_MAX_TIE_EXTENSIONS,
   SPYFALL_VOTING_SECONDS,
+  SPYFALL_CALL_VOTE_POLL_SECONDS,
+  SPYFALL_CALL_VOTE_COOLDOWN_SECONDS,
   validateQuestionPayload,
   validateAnswerPayload,
   validateVotePayload,
   validateGuessPayload,
+  validateVoteCallResponsePayload,
   tallyVotes,
   resolveMajority,
-  requiredVoteCallers,
+  requiredPollMajority,
 } from "./SpyfallRules";
+
+// A live "open the accusation vote?" poll - tracked internally as the full
+// per-user ballot (needed to compute the majority), while getPublicState
+// only ever exposes the aggregate shape (SpyfallVoteCallPoll).
+interface VoteCallPollState {
+  votes: Map<string, boolean>; // userId -> accept/decline
+  timeout: NodeJS.Timeout;
+  deadline: number;
+}
 
 const MAX_LOG_ENTRIES = 200;
 const MIN_DISCUSSION_SECONDS = 3 * 60;
@@ -54,7 +67,12 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   private roleAssignment: Map<string, string> = new Map();
   private log: SpyfallLogEntry[] = [];
   private votes: Map<string, string> = new Map(); // voterUserId -> targetUserId
-  private voteCallers: Set<string> = new Set();
+  // The currently-open "shall we open the accusation vote?" poll, if any -
+  // see handleCallVote/handleVoteCallResponse/resolveVotePoll.
+  private votePoll: VoteCallPollState | null = null;
+  // Set after a poll fails to reach a majority "yes" - blocks a new
+  // handleCallVote request until this timestamp passes.
+  private voteCallCooldownUntil: number | null = null;
   private tieExtensionsUsed = 0;
   private disconnected: Set<string> = new Set();
   private phase: SpyfallPhase = "IN_PROGRESS";
@@ -146,6 +164,9 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       case SPYFALL_ACTIONS.CALL_VOTE:
         this.handleCallVote(userId);
         break;
+      case SPYFALL_ACTIONS.VOTE_CALL_RESPONSE:
+        this.handleVoteCallResponse(userId, validateVoteCallResponsePayload(payload).accept);
+        break;
       case SPYFALL_ACTIONS.VOTE:
         this.handleVote(userId, validateVotePayload(payload).targetUserId);
         break;
@@ -194,24 +215,98 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     });
   }
 
-  // Every player - the Spy included, with no special-casing - can call for
-  // a vote; once EVERY current player has (unanimous, see
-  // requiredVoteCallers), the room moves into the dedicated voting screen.
-  // The Spy gets no unilateral shortcut here: the only ways into voting are
-  // everyone agreeing, or the discussion clock running out.
+  // Anyone - the Spy included, with no special-casing - can request a call-
+  // vote poll, which then asks the whole room to accept or decline (see
+  // handleVoteCallResponse). The requester's own vote counts as an
+  // automatic "accept". Blocked while a poll is already running, or during
+  // the post-failure cooldown (see resolveVotePoll).
   private handleCallVote(userId: string): void {
     if (this.phase !== "IN_PROGRESS") {
       throw new GameActionError("ตอนนี้ไม่ได้อยู่ในช่วงพูดคุย เปิดโหวตไม่ได้");
     }
-    if (this.voteCallers.has(userId)) return;
+    if (this.votePoll) {
+      throw new GameActionError("มีคนขอเปิดโหวตอยู่แล้ว รอผลก่อน");
+    }
+    if (this.voteCallCooldownUntil && Date.now() < this.voteCallCooldownUntil) {
+      throw new GameActionError("เพิ่งขอเปิดโหวตไปแล้วแต่เสียงส่วนมากไม่เห็นด้วย ต้องรอสักครู่ก่อนขอใหม่");
+    }
 
-    this.voteCallers.add(userId);
+    const votes = new Map<string, boolean>([[userId, true]]);
+    const deadline = Date.now() + SPYFALL_CALL_VOTE_POLL_SECONDS * 1000;
+    const timeout = setTimeout(() => this.resolveVotePoll(), SPYFALL_CALL_VOTE_POLL_SECONDS * 1000);
+    this.votePoll = { votes, timeout, deadline };
 
-    const required = requiredVoteCallers(this.players.size);
-    if (this.voteCallers.size >= required) {
-      this.openVoting("เปิดโหมดโหวตแล้ว! เลือกผู้เล่นที่คุณคิดว่าเป็นสปาย");
+    const caller = this.players.get(userId)?.username ?? "ไม่ทราบชื่อ";
+    this.appendSystemLog(`${caller} ขอเปิดโหวตหาสปาย! รอเสียงส่วนมากตอบรับ`); // also emits STATE_CHANGED
+  }
+
+  // Anyone currently in the round (the Spy included) can accept or decline
+  // the open call-vote poll - resolves early the instant a majority is
+  // reached either way, exactly like the room-level continue-play poll.
+  private handleVoteCallResponse(userId: string, accept: boolean): void {
+    if (!this.votePoll) {
+      throw new GameActionError("ไม่มีการขอเปิดโหวตในขณะนี้");
+    }
+    this.votePoll.votes.set(userId, accept);
+
+    let yes = 0;
+    let no = 0;
+    for (const v of this.votePoll.votes.values()) (v ? yes++ : no++);
+    const required = requiredPollMajority(this.players.size);
+
+    if (yes >= required) {
+      this.resolveVotePoll(true);
+    } else if (no >= required) {
+      this.resolveVotePoll(false);
+    } else if (this.votePoll.votes.size >= this.players.size) {
+      // Everyone answered but neither side reached a majority (only
+      // possible with an even headcount split down the middle) - resolve
+      // now rather than waiting out the rest of the poll timeout.
+      this.resolveVotePoll(yes > no);
     } else {
       this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+    }
+  }
+
+  // Ends the currently-open call-vote poll and acts on the outcome.
+  // `forcedResult`, when given, skips tallying (used once a majority has
+  // already been reached, or once everyone has responded); otherwise
+  // resolves from whatever responses came in before the timeout - a tie or
+  // nobody responding defaults to NOT opening the vote, same philosophy as
+  // the room-level continue-play poll.
+  private resolveVotePoll(forcedResult?: boolean): void {
+    if (!this.votePoll) return;
+    clearTimeout(this.votePoll.timeout);
+
+    let willOpen: boolean;
+    if (forcedResult !== undefined) {
+      willOpen = forcedResult;
+    } else {
+      let yes = 0;
+      let no = 0;
+      for (const v of this.votePoll.votes.values()) (v ? yes++ : no++);
+      willOpen = yes > no;
+    }
+    this.votePoll = null;
+
+    if (willOpen) {
+      this.openVoting("เสียงส่วนมากเห็นด้วย! เปิดโหมดโหวตแล้ว เลือกผู้เล่นที่คุณคิดว่าเป็นสปาย");
+    } else {
+      this.voteCallCooldownUntil = Date.now() + SPYFALL_CALL_VOTE_COOLDOWN_SECONDS * 1000;
+      this.appendSystemLog(
+        `เสียงส่วนมากไม่เห็นด้วย เล่นต่อ! ขอเปิดโหวตใหม่ได้อีกครั้งใน ${SPYFALL_CALL_VOTE_COOLDOWN_SECONDS / 60} นาที`
+      ); // also emits STATE_CHANGED
+    }
+  }
+
+  // Cancels any in-flight call-vote poll without resolving it either way -
+  // used whenever the round moves on to something else (voting opens some
+  // other way, the Spy surrenders, or the round concludes) so a stray
+  // timeout can never fire into a phase it no longer applies to.
+  private clearVotePoll(): void {
+    if (this.votePoll) {
+      clearTimeout(this.votePoll.timeout);
+      this.votePoll = null;
     }
   }
 
@@ -223,6 +318,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   // happens, forceEndByTimer resolves the round from whatever was
   // submitted so far, exactly like a discussion-phase timeout does.
   private openVoting(systemMessage: string): void {
+    this.clearVotePoll();
     this.phase = "VOTING";
     this.beginTimer(SPYFALL_VOTING_SECONDS);
     this.appendSystemLog(systemMessage); // also emits STATE_CHANGED
@@ -257,8 +353,8 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   }
 
   // The Spy's own "surrender" - a separate, Spy-only escape hatch from the
-  // shared unanimous call-vote button. Pressing it immediately outs them to
-  // the whole table (no more hiding) but hands them an uncontested
+  // shared call-vote poll. Pressing it immediately outs them to the whole
+  // table (no more hiding) but hands them an uncontested
   // SPYFALL_VOTING_SECONDS window to answer alone, instead of sharing the
   // clock with a group vote. There's no going back to IN_PROGRESS from
   // here, and no group vote happens at all in this path - see handleGuess
@@ -271,6 +367,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       throw new GameActionError("ใช้ปุ่มนี้ได้เฉพาะตอนพูดคุยเท่านั้น");
     }
 
+    this.clearVotePoll();
     this.revealed = true;
     this.phase = "REVEALED";
     this.beginTimer(SPYFALL_VOTING_SECONDS);
@@ -348,7 +445,6 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (majority === null && this.votes.size > 0 && this.tieExtensionsUsed < SPYFALL_MAX_TIE_EXTENSIONS) {
       this.tieExtensionsUsed += 1;
       this.votes.clear();
-      this.voteCallers.clear();
       this.phase = "IN_PROGRESS";
       this.beginTimer(SPYFALL_TIE_EXTENSION_SECONDS);
       this.appendSystemLog(
@@ -391,6 +487,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   }
 
   private conclude(result: Omit<SpyfallResult, "scores">): void {
+    this.clearVotePoll();
     this.result = { ...result, scores: this.computeScores(result) };
     this.phase = "FINISHED";
     this.finished = true;
@@ -453,9 +550,27 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       })),
       log: this.log,
       result: this.finished ? this.result : null,
-      voteCallers: Array.from(this.voteCallers),
-      requiredVoteCallers: requiredVoteCallers(this.players.size),
+      votePoll: this.publicVotePoll(),
+      voteCallCooldownUntil: this.voteCallCooldownUntil,
       revealedSpyUserId: this.revealed ? this.spyUserId : null,
+    };
+  }
+
+  // Aggregate-only view of the internal poll ballot: who has responded is
+  // public (so a client can tell whether it still owes a response), but
+  // what any individual player chose stays a secret ballot - only the
+  // running tally is exposed.
+  private publicVotePoll(): SpyfallVoteCallPoll | null {
+    if (!this.votePoll) return null;
+    let votesFor = 0;
+    let votesAgainst = 0;
+    for (const v of this.votePoll.votes.values()) (v ? votesFor++ : votesAgainst++);
+    return {
+      deadline: this.votePoll.deadline,
+      votesFor,
+      votesAgainst,
+      totalPlayers: this.players.size,
+      responderIds: Array.from(this.votePoll.votes.keys()),
     };
   }
 

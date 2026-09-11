@@ -46,6 +46,17 @@ export interface SpyfallResult {
   scores: Record<string, number>;
 }
 
+// A live "open the accusation vote?" poll. Individual choices stay a
+// secret ballot - only the running tally, plus who has already responded
+// (not what they said), are public.
+export interface SpyfallVoteCallPoll {
+  deadline: number;
+  votesFor: number;
+  votesAgainst: number;
+  totalPlayers: number;
+  responderIds: string[];
+}
+
 export interface SpyfallPublicState {
   phase: SpyfallPhase;
   timerDurationSeconds: number;
@@ -53,8 +64,12 @@ export interface SpyfallPublicState {
   players: SpyfallPublicPlayer[];
   log: SpyfallLogEntry[];
   result: SpyfallResult | null;
-  voteCallers: string[];
-  requiredVoteCallers: number;
+  // The in-progress "open the accusation vote?" poll, if anyone has
+  // currently requested one - null the rest of the time.
+  votePoll: SpyfallVoteCallPoll | null;
+  // Nobody may request a new call-vote poll before this timestamp - null
+  // when no cooldown is active.
+  voteCallCooldownUntil: number | null;
   // Set once the Spy has surrendered - null the rest of the time.
   revealedSpyUserId: string | null;
 }
@@ -73,6 +88,7 @@ export const SPYFALL_ACTIONS = {
   QUESTION: "spyfall:question",
   ANSWER: "spyfall:answer",
   CALL_VOTE: "spyfall:callVote",
+  VOTE_CALL_RESPONSE: "spyfall:voteCallResponse",
   VOTE: "spyfall:vote",
   GUESS: "spyfall:guess",
   SURRENDER: "spyfall:surrender",

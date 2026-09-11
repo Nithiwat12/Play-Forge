@@ -55,6 +55,19 @@ export interface SpyfallResult {
   scores: Record<string, number>;
 }
 
+// A live "someone wants to open the accusation vote?" poll. Individual
+// choices stay secret (a secret ballot, like the room-level continue-play
+// poll) - only the running tally is public, plus who has responded at all
+// (not what they said) so each client can tell whether it still owes a
+// response.
+export interface SpyfallVoteCallPoll {
+  deadline: number;
+  votesFor: number;
+  votesAgainst: number;
+  totalPlayers: number;
+  responderIds: string[];
+}
+
 export interface SpyfallPublicState {
   phase: SpyfallPhase;
   timerDurationSeconds: number;
@@ -62,11 +75,15 @@ export interface SpyfallPublicState {
   players: SpyfallPublicPlayer[];
   log: SpyfallLogEntry[];
   result: SpyfallResult | null;
-  // Call-to-vote progress: how many players have asked to open the voting
-  // screen, and how many are required (everyone - unanimous, the Spy
-  // included with no special-casing) before it opens.
-  voteCallers: string[];
-  requiredVoteCallers: number;
+  // The in-progress "open the accusation vote?" poll, if anyone has
+  // currently requested one - null the rest of the time. Majority accept
+  // opens VOTING; majority decline (or a timeout with no majority either
+  // way) keeps discussion going and starts voteCallCooldownUntil.
+  votePoll: SpyfallVoteCallPoll | null;
+  // Nobody may request a new call-vote poll before this timestamp - set
+  // after a poll fails to reach a majority "yes". Null when no cooldown is
+  // active.
+  voteCallCooldownUntil: number | null;
   // Set only once the Spy has "surrendered" (see SPYFALL_ACTIONS.SURRENDER) -
   // null the rest of the time, including all of IN_PROGRESS/VOTING. Once
   // set it stays set (through REVEALED and into FINISHED) so the reveal
@@ -94,7 +111,11 @@ export interface SpyfallPrivateState {
 export const SPYFALL_ACTIONS = {
   QUESTION: "spyfall:question",
   ANSWER: "spyfall:answer",
+  // Requests a fresh call-vote poll (see SpyfallVoteCallPoll). No payload -
+  // the requester's own vote is recorded as an automatic "accept".
   CALL_VOTE: "spyfall:callVote",
+  // Responds to the currently-open call-vote poll with accept/decline.
+  VOTE_CALL_RESPONSE: "spyfall:voteCallResponse",
   VOTE: "spyfall:vote",
   GUESS: "spyfall:guess",
   // The Spy's "surrender / go straight to answering" action - only the Spy
@@ -113,6 +134,10 @@ export interface SpyfallAnswerPayload {
 
 export interface SpyfallVotePayload {
   targetUserId: string;
+}
+
+export interface SpyfallVoteCallResponsePayload {
+  accept: boolean;
 }
 
 // The Spy's final answer - one location name picked from the popup built

@@ -67,11 +67,9 @@ export function SpyfallGame({
   const [guessError, setGuessError] = useState<string | null>(null);
   const [isGuessing, setIsGuessing] = useState(false);
 
-  // "Someone else wants to open voting" popup - shown to anyone who
-  // hasn't called for a vote themselves yet, re-armed only once the
-  // caller count moves past whatever count they last dismissed at.
-  const [voteRequestDismissedAt, setVoteRequestDismissedAt] = useState(0);
   const [isCallingVote, setIsCallingVote] = useState(false);
+  // Responding (accept/decline) to the currently-open call-vote poll.
+  const [isRespondingToPoll, setIsRespondingToPoll] = useState(false);
 
   // The Spy's "surrender / go straight to answering" button - separate
   // from the shared call-vote flow entirely (see handleSurrender below).
@@ -80,8 +78,23 @@ export function SpyfallGame({
   const isFinished = publicState.phase === "FINISHED";
   const isVoting = publicState.phase === "VOTING";
   const isRevealed = publicState.phase === "REVEALED";
-  const hasCalledVote = Boolean(selfUserId && publicState.voteCallers.includes(selfUserId));
+  const hasRespondedToPoll = Boolean(
+    selfUserId && publicState.votePoll?.responderIds.includes(selfUserId)
+  );
   const matchComplete = scoreboard?.matchComplete ?? false;
+
+  // Live countdown for the call-vote button's post-rejection cooldown -
+  // purely for display, the server is what actually enforces it.
+  const [nowForCooldown, setNowForCooldown] = useState(() => Date.now());
+  useEffect(() => {
+    if (!publicState.voteCallCooldownUntil) return;
+    const interval = setInterval(() => setNowForCooldown(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [publicState.voteCallCooldownUntil]);
+  const voteCallCooldownSecondsLeft = publicState.voteCallCooldownUntil
+    ? Math.max(0, Math.ceil((publicState.voteCallCooldownUntil - nowForCooldown) / 1000))
+    : 0;
+  const isVoteCallOnCooldown = voteCallCooldownSecondsLeft > 0;
 
   const previousPhaseRef = useRef(publicState.phase);
   useEffect(() => {
@@ -125,17 +138,7 @@ export function SpyfallGame({
     ? usernameByUserId.get(publicState.revealedSpyUserId) ?? "ไม่ทราบชื่อ"
     : null;
 
-  const voteCallerNames = useMemo(
-    () => publicState.voteCallers.map((id) => usernameByUserId.get(id) ?? "ไม่ทราบชื่อ"),
-    [publicState.voteCallers, usernameByUserId]
-  );
-  const showVoteRequestModal =
-    !isFinished &&
-    !isVoting &&
-    !isRevealed &&
-    !hasCalledVote &&
-    publicState.voteCallers.length > 0 &&
-    publicState.voteCallers.length > voteRequestDismissedAt;
+  const showVoteCallPollModal = Boolean(publicState.votePoll) && !hasRespondedToPoll;
 
   const runAction = useCallback(
     async (actionType: string, payload: unknown, onSuccess?: () => void) => {
@@ -171,15 +174,14 @@ export function SpyfallGame({
     }
   }
 
-  // Used by the "someone else wants to vote" popup's agree button - same
-  // underlying action as the inline button, just also dismisses the popup.
-  async function handleAgreeToVote() {
-    setVoteRequestDismissedAt(publicState.voteCallers.length);
-    await handleCallVote();
-  }
-
-  function handleDismissVoteRequest() {
-    setVoteRequestDismissedAt(publicState.voteCallers.length);
+  // Accept/decline the currently-open call-vote poll (see VoteRequestModal).
+  async function handleVoteCallResponse(accept: boolean) {
+    setIsRespondingToPoll(true);
+    try {
+      await runAction(SPYFALL_ACTIONS.VOTE_CALL_RESPONSE, { accept });
+    } finally {
+      setIsRespondingToPoll(false);
+    }
   }
 
   // Spy-only, irreversible: outs them to the whole table immediately and
@@ -314,7 +316,7 @@ export function SpyfallGame({
           </Card>
         )}
 
-        {scoreboard && scoreboard.roundsPlayed > 0 && (
+        {isFinished && scoreboard && scoreboard.roundsPlayed > 0 && (
           <Card>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-300">ตารางคะแนนรวม</h2>
@@ -400,20 +402,22 @@ export function SpyfallGame({
 
             <h2 className="mt-5 text-sm font-semibold text-slate-300">ขอเปิดโหวต</h2>
             <p className="mt-1 text-xs text-slate-500">
-              ถ้าคิดว่ารู้แล้วว่าใครคือสปาย กดปุ่มนี้เพื่อขอเปิดโหวต ต้องให้ทุกคนในห้องกดขอโหวตครบก่อนถึงจะเข้าสู่โหมดโหวตได้
+              ถ้าคิดว่ารู้แล้วว่าใครคือสปาย กดปุ่มนี้เพื่อขอเปิดโหวต ต้องให้เสียงส่วนมากในห้องเห็นด้วยถึงจะเข้าสู่โหมดโหวตได้
+              - ถ้าเสียงส่วนมากไม่เห็นด้วย จะต้องรอสักครู่ก่อนขอใหม่ได้
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Button
                 variant="secondary"
                 onClick={handleCallVote}
-                disabled={hasCalledVote}
+                disabled={Boolean(publicState.votePoll) || isVoteCallOnCooldown}
                 isLoading={isCallingVote}
               >
-                {hasCalledVote ? "รอเพื่อนคนอื่น..." : "ขอเปิดโหวต"}
+                {publicState.votePoll
+                  ? "รอผลโหวต..."
+                  : isVoteCallOnCooldown
+                    ? `รออีก ${voteCallCooldownSecondsLeft} วินาที`
+                    : "ขอเปิดโหวต"}
               </Button>
-              <span className="text-xs text-slate-500">
-                {publicState.voteCallers.length} / {publicState.requiredVoteCallers} คนขอโหวตแล้ว
-              </span>
             </div>
 
             {privateState.isSpy && (
@@ -551,14 +555,14 @@ export function SpyfallGame({
         />
       )}
 
-      {showVoteRequestModal && (
+      {showVoteCallPollModal && publicState.votePoll && (
         <VoteRequestModal
-          callerNames={voteCallerNames}
-          callerCount={publicState.voteCallers.length}
-          requiredCount={publicState.requiredVoteCallers}
-          isSubmitting={isCallingVote}
-          onAgree={handleAgreeToVote}
-          onDismiss={handleDismissVoteRequest}
+          deadline={publicState.votePoll.deadline}
+          votesFor={publicState.votePoll.votesFor}
+          votesAgainst={publicState.votePoll.votesAgainst}
+          totalPlayers={publicState.votePoll.totalPlayers}
+          isSubmitting={isRespondingToPoll}
+          onRespond={handleVoteCallResponse}
         />
       )}
     </div>
