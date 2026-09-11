@@ -4,7 +4,7 @@ import type { BaseGame } from "../games/core/BaseGame";
 import { RoomService } from "../services/RoomService";
 import { GameSessionService } from "../services/GameSessionService";
 import { ScoreboardService } from "../services/ScoreboardService";
-import { withPresence, broadcastRoomClosed } from "./socketUtils";
+import { withPresence } from "./socketUtils";
 import type { AppServer, AppSocket } from "./socketAuth";
 import type { RoomSettings } from "../types";
 
@@ -66,19 +66,6 @@ interface PendingCategoryPick {
 // never looks at what a "category" is, only whether one is pending.
 const pendingCategoryPicks = new Map<string, PendingCategoryPick>();
 
-// --- Match-complete auto-close ---------------------------------------------
-// Once a match has played out its full configured round count (see
-// Scoreboard.matchComplete), there is nothing left to vote on - the
-// continue-vote system above only ever runs when more rounds remain. Rather
-// than leaving the room sitting around in its lobby forever until someone
-// remembers to manually leave or disband it, it closes itself down a few
-// seconds after the final result so everyone gets a moment to see it first.
-
-const MATCH_COMPLETE_DISBAND_DELAY_MS = 10_000;
-
-// roomId -> the scheduled auto-close following a just-completed match.
-const matchCompleteDisbands = new Map<string, NodeJS.Timeout>();
-
 /**
  * Pushes a fresh state snapshot to every socket currently in the room -
  * individually, because each player's private state differs. This is the
@@ -114,29 +101,6 @@ function clearContinueState(roomId: string): void {
     pendingRoundStarts.delete(roomId);
   }
   pendingCategoryPicks.delete(roomId);
-  const disband = matchCompleteDisbands.get(roomId);
-  if (disband) {
-    clearTimeout(disband);
-    matchCompleteDisbands.delete(roomId);
-  }
-}
-
-// Schedules the room to close itself MATCH_COMPLETE_DISBAND_DELAY_MS after
-// its match finished (closesAt is that same deadline, already sent to
-// clients in the game:end payload so they can show a countdown in sync with
-// this). Reuses the exact same teardown a host's manual disband and the
-// idle-lobby sweep both already use, so every connected client - whether
-// still on the play screen or back in the lobby - gets kicked home the same
-// way, with nobody needing to click anything themselves.
-function scheduleMatchCompleteDisband(io: AppServer, roomId: string, closesAt: number): void {
-  const delay = Math.max(0, closesAt - Date.now());
-  const timeout = setTimeout(() => {
-    matchCompleteDisbands.delete(roomId);
-    RoomService.forceCloseRoom(roomId)
-      .then(() => broadcastRoomClosed(io, roomId, "แมตช์นี้เล่นครบแล้ว ห้องถูกปิดอัตโนมัติ - ดูผลคะแนนย้อนหลังได้ที่หน้าประวัติเกม"))
-      .catch((err) => console.error(`Failed to auto-close completed match room ${roomId}:`, err));
-  }, delay);
-  matchCompleteDisbands.set(roomId, timeout);
 }
 
 export function abortRoomGame(roomId: string): void {
@@ -201,29 +165,23 @@ async function finalizeGame(io: AppServer, roomId: string) {
   await RoomService.resetReadiness(roomId);
 
   const scoreboard = await ScoreboardService.getScoreboardByRoomId(roomId).catch(() => null);
-  const matchComplete = scoreboard?.matchComplete ?? false;
-  // Computed once and sent straight to clients so their own countdown
-  // display and the server's actual auto-close timer (scheduled right
-  // below) can never drift apart.
-  const closesAt = matchComplete ? Date.now() + MATCH_COMPLETE_DISBAND_DELAY_MS : null;
-  io.to(roomId).emit("game:end", { result, scoreboard, closesAt });
+  io.to(roomId).emit("game:end", { result, scoreboard });
 
   const room = await RoomService.getPublicRoomById(roomId).catch(() => null);
   if (room) {
     io.to(roomId).emit("room:update", { room: withPresence(room) });
   }
 
-  if (matchComplete) {
-    // Nothing left to vote on - close the room itself shortly, instead of
-    // leaving it to sit around until someone remembers to leave/disband it.
-    scheduleMatchCompleteDisband(io, roomId, closesAt as number);
-  } else if (scoreboard) {
-    // More configured rounds remain (or the room has no round limit at
-    // all) - offer everyone the chance to keep going instead of leaving it
-    // to the host alone. `result.details` is opaque game-specific JSON, but
-    // a `locationCategory` string on it (as Spyfall's does) is read purely
-    // as a passthrough value - never interpreted - to support "same
-    // category again" for a PER_ROUND match.
+  // Always offer everyone the chance to keep going in the SAME room,
+  // whether or not the configured round count (if any) has been reached -
+  // there used to be a separate "match complete" path here that auto-closed
+  // the room instead, but nothing about hitting a configured round count
+  // actually requires ending the room; the group might well want to keep
+  // playing together. `result.details` is opaque game-specific JSON, but a
+  // `locationCategory` string on it (as Spyfall's does) is read purely as a
+  // passthrough value - never interpreted - to support "same category
+  // again" for a PER_ROUND match.
+  if (scoreboard) {
     const lastCategory =
       typeof (result.details as Record<string, unknown> | undefined)?.locationCategory === "string"
         ? ((result.details as Record<string, unknown>).locationCategory as string)

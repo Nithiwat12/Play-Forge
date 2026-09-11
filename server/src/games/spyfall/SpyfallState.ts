@@ -101,6 +101,18 @@ export interface SpyfallPublicState {
   // until the round resolves one way or another. Null the rest of the
   // time, including the very first (non-extended) vote.
   debateCandidateIds: string[] | null;
+  // Whose turn it is to pick someone to ask, during IN_PROGRESS - the
+  // question/answer flow is a strict relay: one random player starts, they
+  // pick a target (see pendingQuestion), the target answers and becomes
+  // the new asker, and so on. Null once the round leaves IN_PROGRESS.
+  askerUserId: string | null;
+  // Set the instant askerUserId picks a target - the question itself may
+  // have been asked out loud, so `text` in the matching log entry can be
+  // empty. Cleared the moment that target answers (see SPYFALL_ACTIONS.
+  // ANSWER), at which point they become the new askerUserId. Only the
+  // named target may answer while this is set, and the asker may not pick
+  // anyone new until it clears.
+  pendingQuestion: { toUserId: string; toUsername: string; askedAt: number } | null;
 }
 
 // Only ever holds THIS browser's own player - never another player's role.
@@ -137,11 +149,15 @@ export const SPYFALL_ACTIONS = {
 
 export interface SpyfallQuestionPayload {
   toUserId: string;
-  text: string;
+  // Optional - the question is often just asked out loud in person, so
+  // there's nothing to log beyond who was picked.
+  text?: string;
 }
 
 export interface SpyfallAnswerPayload {
-  text: string;
+  // Optional, same reasoning as SpyfallQuestionPayload.text - answering out
+  // loud still ends the turn, it just leaves no text in the log.
+  text?: string;
 }
 
 export interface SpyfallVotePayload {

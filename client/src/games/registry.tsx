@@ -14,11 +14,6 @@ export interface GameComponentProps {
   onReplay: () => Promise<{ ok: boolean; error?: string }>;
   // Match-wide score table (null until at least one round has finished).
   scoreboard: Scoreboard | null;
-  // Set once the match has played out its full configured round count - the
-  // server auto-closes the room at this timestamp (see gameSocket's
-  // finalizeGame), so a game component can show a matching countdown. Null
-  // the rest of the time, including for a room with no round limit at all.
-  matchClosesAt?: number | null;
 }
 
 // Client-side mirror of the server's GameRegistry: maps a game's slug to

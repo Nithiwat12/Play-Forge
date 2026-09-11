@@ -34,3 +34,27 @@ export async function broadcastRoomClosed(io: AppServer, roomId: string, message
   }
   RoomPresence.clearRoom(roomId);
 }
+
+/**
+ * Host-initiated removal of ONE other player (room:kick) - unlike
+ * broadcastRoomClosed above, only that player's own socket(s) get the
+ * "you're out" event and get pulled out of the Socket.IO room; everyone
+ * else just sees the normal room:update roster refresh the caller sends
+ * separately. A user can have more than one socket open (multiple tabs),
+ * so every one of them needs to hear about it and leave.
+ */
+export async function broadcastPlayerKicked(
+  io: AppServer,
+  roomId: string,
+  targetUserId: string,
+  message: string
+) {
+  const socketsInRoom = await io.in(roomId).fetchSockets();
+  for (const memberSocket of socketsInRoom) {
+    if (memberSocket.data.user.id !== targetUserId) continue;
+    memberSocket.emit("room:kicked", { message });
+    memberSocket.leave(roomId);
+    delete memberSocket.data.currentRoomId;
+  }
+  RoomPresence.removeUser(roomId, targetUserId);
+}

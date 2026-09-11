@@ -90,6 +90,10 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   // the most votes last time, instead of the whole roster. Null the rest
   // of the time (including the very first, non-extended vote).
   private debateCandidateIds: Set<string> | null = null;
+  // Whose turn it is to pick someone to ask - see SpyfallPublicState's
+  // askerUserId doc comment for the full relay mechanic.
+  private askerUserId: string | null = null;
+  private pendingQuestion: { toUserId: string; toUsername: string; askedAt: number } | null = null;
   private disconnected: Set<string> = new Set();
   private phase: SpyfallPhase = "IN_PROGRESS";
   // Set once the Spy surrenders (see handleSurrender) and never unset -
@@ -121,6 +125,11 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     this.spyUserId = playerIds[Math.floor(Math.random() * playerIds.length)];
     const nonSpyIds = playerIds.filter((id) => id !== this.spyUserId);
     this.roleAssignment = assignRoles(this.location, nonSpyIds);
+
+    // Kicks off the question/answer relay with one random player - anyone,
+    // Spy included, since the Spy has to bluff through being asked things
+    // same as everyone else.
+    this.askerUserId = playerIds[Math.floor(Math.random() * playerIds.length)];
 
     this.phase = "IN_PROGRESS";
     this.started = true;
@@ -169,12 +178,40 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       return;
     }
     this.disconnected.add(userId);
+    this.reassignStuckAsker();
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
 
   reconnectPlayer(userId: string): void {
     super.reconnectPlayer(userId);
     if (this.disconnected.delete(userId)) this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+  }
+
+  // Keeps the ask/answer relay from stalling forever on someone who just
+  // went offline: if the player waiting to answer disconnects, there's no
+  // one left who could ever resolve that question, so drop it; if the
+  // player whose turn it is to pick a target (with no question pending)
+  // disconnects, hand the turn to a random connected player instead of
+  // leaving everyone stuck with no one able to ask.
+  private reassignStuckAsker(): void {
+    if (this.phase !== "IN_PROGRESS") return;
+    if (this.pendingQuestion && this.disconnected.has(this.pendingQuestion.toUserId)) {
+      const strandedUsername = this.pendingQuestion.toUsername;
+      this.pendingQuestion = null;
+      this.appendSystemLog(`${strandedUsername} ออกจากเกมก่อนตอบคำถาม เลยข้ามคำถามนั้นไป`);
+    }
+    if (!this.pendingQuestion && (!this.askerUserId || this.disconnected.has(this.askerUserId))) {
+      const connectedIds = this.getPlayers()
+        .map((p) => p.userId)
+        .filter((id) => !this.disconnected.has(id));
+      this.askerUserId = connectedIds.length > 0
+        ? connectedIds[Math.floor(Math.random() * connectedIds.length)]
+        : null;
+      if (this.askerUserId) {
+        const nextAskerUsername = this.players.get(this.askerUserId)?.username ?? "ไม่ทราบชื่อ";
+        this.appendSystemLog(`ให้ ${nextAskerUsername} เป็นคนถามต่อแทน`);
+      }
+    }
   }
 
   handleAction(userId: string, actionType: string, payload: unknown): void {
@@ -212,7 +249,20 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     }
   }
 
-  private handleQuestion(fromUserId: string, payload: { toUserId: string; text: string }): void {
+  // Only the current asker may pick a target, and only when nobody is
+  // currently on the hook to answer - this is a strict one-question-at-a-
+  // time relay, not a free-for-all. `text` is optional since the question
+  // itself is often just asked out loud.
+  private handleQuestion(fromUserId: string, payload: { toUserId: string; text?: string }): void {
+    if (this.phase !== "IN_PROGRESS") {
+      throw new GameActionError("ตอนนี้ไม่ใช่ช่วงถาม-ตอบ");
+    }
+    if (fromUserId !== this.askerUserId) {
+      throw new GameActionError("ยังไม่ถึงตาคุณจะถาม");
+    }
+    if (this.pendingQuestion) {
+      throw new GameActionError("รอให้ตอบคำถามก่อนหน้านี้ก่อน");
+    }
     if (payload.toUserId === fromUserId) {
       throw new GameActionError("คุณถามตัวเองไม่ได้");
     }
@@ -220,7 +270,12 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (!target) {
       throw new GameActionError("ผู้เล่นที่เลือกไม่ได้อยู่ในเกมนี้");
     }
+    if (this.disconnected.has(target.userId)) {
+      throw new GameActionError("ผู้เล่นคนนี้ออฟไลน์อยู่ ถามไม่ได้ตอนนี้");
+    }
     const from = this.players.get(fromUserId)!;
+
+    this.pendingQuestion = { toUserId: target.userId, toUsername: target.username, askedAt: Date.now() };
 
     this.appendLog({
       id: randomUUID(),
@@ -229,21 +284,36 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       fromUsername: from.username,
       toUserId: target.userId,
       toUsername: target.username,
-      text: payload.text.slice(0, SPYFALL_MAX_TEXT_LENGTH),
+      text: (payload.text ?? "").slice(0, SPYFALL_MAX_TEXT_LENGTH),
       timestamp: Date.now(),
     });
   }
 
-  private handleAnswer(fromUserId: string, payload: { text: string }): void {
+  // Only the player currently on the hook (pendingQuestion.toUserId) may
+  // answer - doing so closes out the question and hands them the turn to
+  // ask next. `text` is optional, same reasoning as handleQuestion.
+  private handleAnswer(fromUserId: string, payload: { text?: string }): void {
+    if (this.phase !== "IN_PROGRESS") {
+      throw new GameActionError("ตอนนี้ไม่ใช่ช่วงถาม-ตอบ");
+    }
+    if (!this.pendingQuestion || fromUserId !== this.pendingQuestion.toUserId) {
+      throw new GameActionError("ยังไม่มีคำถามที่ต้องตอบตอนนี้");
+    }
     const from = this.players.get(fromUserId)!;
-    this.appendLog({
-      id: randomUUID(),
-      type: "answer",
-      fromUserId,
-      fromUsername: from.username,
-      text: payload.text.slice(0, SPYFALL_MAX_TEXT_LENGTH),
-      timestamp: Date.now(),
-    });
+    if (payload.text) {
+      this.appendLog({
+        id: randomUUID(),
+        type: "answer",
+        fromUserId,
+        fromUsername: from.username,
+        text: payload.text.slice(0, SPYFALL_MAX_TEXT_LENGTH),
+        timestamp: Date.now(),
+      });
+    } else {
+      this.appendSystemLog(`${from.username} ตอบคำถามแล้ว (ตอบด้วยวาจา)`);
+    }
+    this.pendingQuestion = null;
+    this.askerUserId = fromUserId; // the answerer becomes the next asker
   }
 
   // Anyone - the Spy included, with no special-casing - can request a call-
@@ -616,6 +686,8 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       voteCallCooldownUntil: this.voteCallCooldownUntil,
       revealedSpyUserId: this.revealed ? this.spyUserId : null,
       debateCandidateIds: this.debateCandidateIds ? Array.from(this.debateCandidateIds) : null,
+      askerUserId: this.phase === "IN_PROGRESS" ? this.askerUserId : null,
+      pendingQuestion: this.phase === "IN_PROGRESS" ? this.pendingQuestion : null,
     };
   }
 

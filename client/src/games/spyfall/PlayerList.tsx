@@ -5,10 +5,15 @@ import { playersSignature } from "../../utils/memoCompare";
 interface PlayerListProps {
   players: SpyfallPublicPlayer[];
   selfUserId?: string;
-  onAsk?: (userId: string) => void;
+  // Whoever's turn it is to pick someone to ask, if any - shown as a badge
+  // instead of a per-row "ถาม" button now that asking is a strict relay
+  // driven by AskTargetModal (see SpyfallGame.tsx), not a free-for-all
+  // anyone could click into at any time.
+  askerUserId?: string | null;
+  pendingTargetUserId?: string | null;
 }
 
-function PlayerListImpl({ players, selfUserId, onAsk }: PlayerListProps) {
+function PlayerListImpl({ players, selfUserId, askerUserId, pendingTargetUserId }: PlayerListProps) {
   return (
     <ul className="flex flex-col gap-2">
       {players.map((player) => (
@@ -30,13 +35,11 @@ function PlayerListImpl({ players, selfUserId, onAsk }: PlayerListProps) {
               </span>
             )}
           </div>
-          {onAsk && player.userId !== selfUserId && (
-            <button
-              onClick={() => onAsk(player.userId)}
-              className="text-xs text-brand-400 hover:text-brand-300"
-            >
-              ถาม
-            </button>
+          {player.userId === askerUserId && (
+            <span className="text-xs font-medium text-brand-400">กำลังถาม...</span>
+          )}
+          {player.userId === pendingTargetUserId && (
+            <span className="text-xs font-medium text-amber-400">กำลังถูกถาม</span>
           )}
         </li>
       ))}
@@ -47,13 +50,12 @@ function PlayerListImpl({ players, selfUserId, onAsk }: PlayerListProps) {
 // `players` is a fresh array reference on every single game:state
 // broadcast (a new question, a vote, the timer resolving, ...) even when
 // this particular list of names/status hasn't changed, so plain memo
-// would never help - compare the actual player values instead. `onAsk`
-// still needs a stable identity from the parent (see SpyfallGame.tsx's
-// useCallback) for this to skip renders during unrelated updates.
+// would never help - compare the actual player values instead.
 export const PlayerList = memo(PlayerListImpl, (prev, next) => {
   return (
     prev.selfUserId === next.selfUserId &&
-    prev.onAsk === next.onAsk &&
+    prev.askerUserId === next.askerUserId &&
+    prev.pendingTargetUserId === next.pendingTargetUserId &&
     playersSignature(prev.players) === playersSignature(next.players)
   );
 });

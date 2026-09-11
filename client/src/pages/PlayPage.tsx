@@ -49,11 +49,6 @@ export function PlayPage() {
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [isSelectingCategory, setIsSelectingCategory] = useState(false);
 
-  // Set once the match has played out its full round count (see gameSocket's
-  // finalizeGame) - the server auto-closes the room at this same deadline,
-  // so this is purely for showing a matching countdown on this end.
-  const [matchClosesAt, setMatchClosesAt] = useState<number | null>(null);
-
   useEffect(() => {
     if (!roomCode) { setError("ไม่พบรหัสห้อง"); setIsLoading(false); return; }
     setIsLoading(true);
@@ -65,7 +60,6 @@ export function PlayPage() {
     setContinueError(null);
     setCategoryPending(null);
     setCategoryError(null);
-    setMatchClosesAt(null);
     const socket = connectSocket();
     let cancelled = false;
 
@@ -93,12 +87,8 @@ export function PlayPage() {
       setCategoryPending(null);
     }
 
-    function handleGameEnd(payload: { scoreboard?: Scoreboard | null; closesAt?: number | null }) {
+    function handleGameEnd(payload: { scoreboard?: Scoreboard | null }) {
       if (payload.scoreboard) setScoreboard(payload.scoreboard);
-      // Set only once the match has played out its full round count (see
-      // gameSocket's finalizeGame) - the server auto-closes the room at
-      // this same deadline, so this just mirrors that countdown for display.
-      setMatchClosesAt(payload.closesAt ?? null);
     }
 
     function handleRoomUpdate({ room: updatedRoom }: { room: Room }) {
@@ -367,7 +357,6 @@ export function PlayPage() {
         onAction={handleAction}
         onReplay={handleReplay}
         scoreboard={scoreboard}
-        matchClosesAt={matchClosesAt}
       />
       {showLeaveConfirm && (
         <ConfirmModal

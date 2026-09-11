@@ -9,17 +9,6 @@ interface HintPanelProps {
   hintCooldownEndsAt: number | null;
   isSubmitting: boolean;
   onGiveHint: (hintText: string | null) => void;
-  isMarkingCorrect: boolean;
-  isMarkingWrong: boolean;
-  onMarkCorrect: () => void;
-  onMarkWrong: () => void;
-  // Winning needs EVERY currently-connected non-turn player to vote ตอบถูก
-  // (unanimous) - see WordHeadGame.eligibleVoterIds. selfVote lets this
-  // viewer's own button reflect that they've already voted, instead of
-  // looking like nothing happened while waiting on everyone else.
-  votesCorrectCount: number;
-  votesNeeded: number;
-  selfVote: "correct" | "wrong" | null;
 }
 
 // Shown to everyone EXCEPT the current up player. The "ให้คำใบ้" button
@@ -28,24 +17,17 @@ interface HintPanelProps {
 // cooldown is active; text is optional so an in-person group can just say
 // the hint out loud and tap the button purely to start their cooldown.
 //
-// The ✅/❌ judging buttons below are always available too, no cooldown -
-// they're how the room decides whether the up player's answer (typed or
-// just said out loud) is right. A typed guess also pops up GuessJudgeModal
-// on top of everything so it can't be missed, but these buttons stay here
-// as the everyday way to confirm an answer said out loud.
+// No standing ✅/❌ buttons here anymore - they showed up permanently even
+// with no answer to judge yet, which read as broken ("some players have
+// them, some don't" depending on whose turn it was). Judging only happens
+// through GuessJudgeModal, which pops up for everyone the moment the up
+// player actually submits a typed guess - see WordHeadGame.tsx.
 export function HintPanel({
   currentWord,
   currentTurnUsername,
   hintCooldownEndsAt,
   isSubmitting,
   onGiveHint,
-  isMarkingCorrect,
-  isMarkingWrong,
-  onMarkCorrect,
-  onMarkWrong,
-  votesCorrectCount,
-  votesNeeded,
-  selfVote,
 }: HintPanelProps) {
   const [hintText, setHintText] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -81,31 +63,6 @@ export function HintPanel({
         <Button onClick={handleSubmit} disabled={onCooldown} isLoading={isSubmitting}>
           {onCooldown ? `รอ ${cooldownSecondsLeft} วิ` : "ให้คำใบ้"}
         </Button>
-      </div>
-
-      <div className="mt-4 border-t border-slate-800 pt-3">
-        <p className="text-xs text-slate-500">{currentTurnUsername} ตอบถูกไหม? (ไม่ว่าจะพิมพ์หรือพูดออกเสียง)</p>
-        <p className="mt-1 text-[11px] text-slate-600">ต้องกด "ตอบถูก" ให้ครบทุกคนถึงจะนับเป็นชนะ</p>
-        <div className="mt-2 flex gap-2">
-          <Button
-            variant="secondary"
-            className="flex-1 border border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50"
-            onClick={onMarkCorrect}
-            isLoading={isMarkingCorrect}
-            disabled={isMarkingWrong || selfVote === "correct"}
-          >
-            {selfVote === "correct" ? `✅ กดแล้ว (${votesCorrectCount}/${votesNeeded})` : "✅ ตอบถูก"}
-          </Button>
-          <Button
-            variant="secondary"
-            className="flex-1"
-            onClick={onMarkWrong}
-            isLoading={isMarkingWrong}
-            disabled={isMarkingCorrect}
-          >
-            ❌ ยังไม่ถูก
-          </Button>
-        </div>
       </div>
     </Card>
   );

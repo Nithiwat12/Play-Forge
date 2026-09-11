@@ -9,6 +9,7 @@ import { PlayerList } from "./PlayerList";
 import { Voting } from "./Voting";
 import { LocationChecklist } from "./LocationChecklist";
 import { GuessModal } from "./GuessModal";
+import { AskTargetModal } from "./AskTargetModal";
 import { VoteRequestModal } from "./VoteRequestModal";
 import { ScoreboardTable } from "../../components/game/ScoreboardTable";
 import { SPYFALL_ACTIONS } from "./types";
@@ -23,10 +24,6 @@ interface SpyfallGameProps {
   onAction: (actionType: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
   onReplay: () => Promise<{ ok: boolean; error?: string }>;
   scoreboard: Scoreboard | null;
-  // Set once the match is complete - the server auto-closes the room at
-  // this timestamp (see gameSocket's finalizeGame), so this just drives a
-  // matching countdown display here.
-  matchClosesAt?: number | null;
 }
 
 export function SpyfallGame({
@@ -36,12 +33,11 @@ export function SpyfallGame({
   selfUserId,
   onAction,
   scoreboard,
-  matchClosesAt,
 }: SpyfallGameProps) {
   const navigate = useNavigate();
-  const [targetUserId, setTargetUserId] = useState<string>("");
-  const [questionText, setQuestionText] = useState("");
   const [answerText, setAnswerText] = useState("");
+  const [isAsking, setIsAsking] = useState(false);
+  const [isAnswering, setIsAnswering] = useState(false);
   const [myVoteTargetId, setMyVoteTargetId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -89,32 +85,12 @@ export function SpyfallGame({
   );
   const matchComplete = scoreboard?.matchComplete ?? false;
 
-  // Once the whole match has played out its configured round count, the
-  // room's lobby can never start another round (see the server's
-  // assertRoundCanStart) - sending the player there is a dead end. Go
-  // straight home instead, with a one-off notice Home.tsx picks up and
-  // shows, same idea as matchComplete already being true here (computed
-  // from the scoreboard fetched over the game:end socket event).
+  // The room stays open and playable after a match completes now (see
+  // gameSocket's finalizeGame - it no longer auto-closes the room), so this
+  // is always just a normal trip back to the lobby.
   function handleBackToLobbyOrHome() {
-    if (matchComplete) {
-      navigate("/home", { state: { notice: `เกม "${room.roomName}" จบแล้ว! เล่นครบ ${scoreboard?.numberOfRounds} รอบ` } });
-    } else {
-      navigate(`/lobby/${room.roomCode}`);
-    }
+    navigate(`/lobby/${room.roomCode}`);
   }
-
-  // Live countdown to the room's auto-close once the match is complete -
-  // purely for display, the server is what actually closes it (see
-  // gameSocket's scheduleMatchCompleteDisband).
-  const [nowForMatchClose, setNowForMatchClose] = useState(() => Date.now());
-  useEffect(() => {
-    if (!matchClosesAt) return;
-    const interval = setInterval(() => setNowForMatchClose(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [matchClosesAt]);
-  const matchClosesSecondsLeft = matchClosesAt
-    ? Math.max(0, Math.ceil((matchClosesAt - nowForMatchClose) / 1000))
-    : 0;
 
   // Live countdown for the call-vote button's post-rejection cooldown -
   // purely for display, the server is what actually enforces it.
@@ -160,11 +136,6 @@ export function SpyfallGame({
     }
   }, [isVoting, isRevealed, privateState.isSpy]);
 
-  const otherPlayers = useMemo(
-    () => publicState.players.filter((p) => p.userId !== selfUserId),
-    [publicState.players, selfUserId]
-  );
-
   const usernameByUserId = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of publicState.players) map.set(p.userId, p.username);
@@ -189,6 +160,18 @@ export function SpyfallGame({
 
   const showVoteCallPollModal = Boolean(publicState.votePoll) && !hasRespondedToPoll;
 
+  const askerUsername = publicState.askerUserId
+    ? usernameByUserId.get(publicState.askerUserId) ?? "ไม่ทราบชื่อ"
+    : null;
+  // Pops AskTargetModal open the instant it's this player's turn to pick
+  // someone - closes itself again the moment the server confirms a
+  // question is pending (see handleAskSubmit).
+  const isMyAskTurn =
+    !isFinished && !isVoting && !isRevealed &&
+    publicState.askerUserId === selfUserId && !publicState.pendingQuestion;
+  const isMyQuestionToAnswer =
+    !isFinished && !isVoting && !isRevealed && publicState.pendingQuestion?.toUserId === selfUserId;
+
   const runAction = useCallback(
     async (actionType: string, payload: unknown, onSuccess?: () => void) => {
       setActionError(null);
@@ -202,16 +185,29 @@ export function SpyfallGame({
     [onAction]
   );
 
-  async function handleAskSubmit() {
-    if (!targetUserId || !questionText.trim()) return;
-    await runAction(SPYFALL_ACTIONS.QUESTION, { toUserId: targetUserId, text: questionText }, () =>
-      setQuestionText("")
-    );
+  // Called from AskTargetModal, which only shows up when it's actually this
+  // player's turn to ask (see isMyAskTurn below) - text is optional, since
+  // the question itself is often just asked out loud once someone's picked.
+  async function handleAskSubmit(targetUserId: string, text: string) {
+    setIsAsking(true);
+    try {
+      await runAction(SPYFALL_ACTIONS.QUESTION, { toUserId: targetUserId, text: text || undefined });
+    } finally {
+      setIsAsking(false);
+    }
   }
 
+  // Only the player currently on the hook to answer sees the box this is
+  // wired to (see isMyQuestionToAnswer below) - pressing "ตอบแล้ว" closes
+  // out the question and hands them the turn to ask next, whether or not
+  // they typed anything (answering out loud is just as valid).
   async function handleAnswerSubmit() {
-    if (!answerText.trim()) return;
-    await runAction(SPYFALL_ACTIONS.ANSWER, { text: answerText }, () => setAnswerText(""));
+    setIsAnswering(true);
+    try {
+      await runAction(SPYFALL_ACTIONS.ANSWER, { text: answerText.trim() || undefined }, () => setAnswerText(""));
+    } finally {
+      setIsAnswering(false);
+    }
   }
 
   async function handleCallVote() {
@@ -247,12 +243,6 @@ export function SpyfallGame({
       setIsSurrendering(false);
     }
   }
-
-  // Stable identity (via useCallback) so the memoized PlayerList/Voting
-  // components below can actually skip re-rendering on unrelated updates
-  // (a new chat message, the timer ticking, etc.) instead of treating
-  // this as "changed" on every single render.
-  const handleAsk = useCallback((userId: string) => setTargetUserId(userId), []);
 
   const handleVote = useCallback(
     async (voteTargetUserId: string) => {
@@ -350,7 +340,7 @@ export function SpyfallGame({
             <div className="mt-4 flex flex-wrap items-center gap-3">
               {matchComplete ? (
                 <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
-                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - ห้องจะปิดอัตโนมัติใน {matchClosesSecondsLeft} วินาที
+                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - รอผลโหวตว่าจะเล่นแมตช์ใหม่ต่อหรือกลับล็อบบี้...
                 </p>
               ) : (
                 <p className="flex items-center text-xs text-slate-500">
@@ -358,7 +348,7 @@ export function SpyfallGame({
                 </p>
               )}
               <Button variant="secondary" onClick={handleBackToLobbyOrHome}>
-                {matchComplete ? "กลับหน้าหลัก" : "กลับไปที่ล็อบบี้"}
+                กลับไปที่ล็อบบี้
               </Button>
             </div>
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
@@ -381,43 +371,37 @@ export function SpyfallGame({
 
         {!isFinished && !isVoting && !isRevealed && (
           <Card>
-            <h2 className="text-sm font-semibold text-slate-300">ถามคำถาม</h2>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <select
-                value={targetUserId}
-                onChange={(e) => setTargetUserId(e.target.value)}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-100"
-              >
-                <option value="">เลือกผู้เล่น...</option>
-                {otherPlayers.map((p) => (
-                  <option key={p.userId} value={p.userId}>
-                    {p.username}
-                  </option>
-                ))}
-              </select>
-              <Input
-                value={questionText}
-                onChange={(e) => setQuestionText(e.target.value)}
-                placeholder="เช่น ที่นั่นอากาศเป็นยังไงบ้าง?"
-                className="flex-1"
-              />
-              <Button onClick={handleAskSubmit} disabled={!targetUserId || !questionText.trim()}>
-                ถาม
-              </Button>
-            </div>
+            <h2 className="text-sm font-semibold text-slate-300">ถาม-ตอบ</h2>
+            {publicState.pendingQuestion ? (
+              <p className="mt-1 text-xs text-slate-500">
+                🎤 {askerUsername} ถาม {publicState.pendingQuestion.toUsername} อยู่ - รอ
+                {publicState.pendingQuestion.toUsername}ตอบ
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">
+                🎤 ตาของ {askerUsername ?? "ใครสักคน"} ที่จะเลือกถามต่อ
+              </p>
+            )}
 
-            <h2 className="mt-5 text-sm font-semibold text-slate-300">ตอบคำถาม</h2>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <Input
-                value={answerText}
-                onChange={(e) => setAnswerText(e.target.value)}
-                placeholder="พิมพ์คำตอบของคุณ..."
-                className="flex-1"
-              />
-              <Button variant="secondary" onClick={handleAnswerSubmit} disabled={!answerText.trim()}>
-                ตอบ
-              </Button>
-            </div>
+            {isMyQuestionToAnswer && (
+              <div className="mt-4 rounded-xl border border-amber-700 bg-amber-950/30 p-4">
+                <p className="text-sm text-amber-200">
+                  {askerUsername} ถามคุณอยู่ - จะพูดตอบออกเสียงหรือพิมพ์ก็ได้ แล้วกด "ตอบแล้ว"
+                  เพื่อรับตาถามคนต่อไป
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={answerText}
+                    onChange={(e) => setAnswerText(e.target.value)}
+                    placeholder="พิมพ์คำตอบ (ไม่จำเป็น)..."
+                    className="flex-1"
+                  />
+                  <Button variant="secondary" onClick={handleAnswerSubmit} isLoading={isAnswering}>
+                    ตอบแล้ว
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <h2 className="mt-5 text-sm font-semibold text-slate-300">ขอเปิดโหวต</h2>
             <p className="mt-1 text-xs text-slate-500">
@@ -534,7 +518,11 @@ export function SpyfallGame({
                     <span className="text-slate-500"> ถาม {entry.toUsername}</span>
                   )}
                   {entry.type === "answer" && <span className="text-slate-500"> ตอบว่า</span>}
-                  <span className="text-slate-300">: {entry.text}</span>
+                  {entry.text ? (
+                    <span className="text-slate-300">: {entry.text}</span>
+                  ) : (
+                    <span className="italic text-slate-500"> (ไม่ได้พิมพ์ข้อความ - ถามด้วยวาจา)</span>
+                  )}
                 </div>
               );
             })}
@@ -549,7 +537,10 @@ export function SpyfallGame({
             <PlayerList
               players={publicState.players}
               selfUserId={selfUserId}
-              onAsk={!isFinished && !isVoting && !isRevealed ? handleAsk : undefined}
+              askerUserId={!isFinished && !isVoting && !isRevealed ? publicState.askerUserId : null}
+              pendingTargetUserId={
+                !isFinished && !isVoting && !isRevealed ? publicState.pendingQuestion?.toUserId ?? null : null
+              }
             />
           </div>
         </Card>
@@ -561,6 +552,16 @@ export function SpyfallGame({
           eliminated={eliminated}
           onToggle={toggleEliminated}
           onClose={() => setIsLocationListOpen(false)}
+        />
+      )}
+
+      {isMyAskTurn && (
+        <AskTargetModal
+          players={publicState.players}
+          selfUserId={selfUserId}
+          isSubmitting={isAsking}
+          error={actionError}
+          onSubmit={handleAskSubmit}
         />
       )}
 

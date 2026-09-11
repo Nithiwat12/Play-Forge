@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "../../components/common/Card";
 import { Button } from "../../components/common/Button";
@@ -23,7 +23,6 @@ interface WordHeadGameProps {
   onAction: (actionType: string, payload: unknown) => Promise<{ ok: boolean; error?: string }>;
   onReplay: () => Promise<{ ok: boolean; error?: string }>;
   scoreboard: Scoreboard | null;
-  matchClosesAt?: number | null;
 }
 
 export function WordHeadGame({
@@ -33,7 +32,6 @@ export function WordHeadGame({
   selfUserId,
   onAction,
   scoreboard,
-  matchClosesAt,
 }: WordHeadGameProps) {
   const navigate = useNavigate();
   const [guessText, setGuessText] = useState("");
@@ -77,16 +75,6 @@ export function WordHeadGame({
     ? Math.min(scoreboard.roundsPlayed + (isFinished ? 0 : 1), scoreboard.numberOfRounds ?? Infinity)
     : 1;
 
-  const [nowForMatchClose, setNowForMatchClose] = useState(() => Date.now());
-  useEffect(() => {
-    if (!matchClosesAt) return;
-    const interval = setInterval(() => setNowForMatchClose(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [matchClosesAt]);
-  const matchClosesSecondsLeft = matchClosesAt
-    ? Math.max(0, Math.ceil((matchClosesAt - nowForMatchClose) / 1000))
-    : 0;
-
   const resultEntries: WordHeadTimeEntry[] = useMemo(() => {
     if (!publicState.result) return [];
     return Object.entries(publicState.result.scores).map(([userId, seconds]) => ({
@@ -108,12 +96,11 @@ export function WordHeadGame({
     return scoreboard.totals.map((t) => ({ userId: t.userId, username: t.username, seconds: t.total }));
   }, [scoreboard]);
 
+  // The room stays open and playable after a match completes now (see
+  // gameSocket's finalizeGame - it no longer auto-closes the room), so this
+  // is always just a normal trip back to the lobby.
   function handleBackToLobbyOrHome() {
-    if (matchComplete) {
-      navigate("/home", { state: { notice: `เกม "${room.roomName}" จบแล้ว! เล่นครบ ${scoreboard?.numberOfRounds} รอบ` } });
-    } else {
-      navigate(`/lobby/${room.roomCode}`);
-    }
+    navigate(`/lobby/${room.roomCode}`);
   }
 
   const runAction = useCallback(
@@ -217,13 +204,13 @@ export function WordHeadGame({
             <div className="mt-4 flex flex-wrap items-center gap-3">
               {matchComplete ? (
                 <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
-                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - ห้องจะปิดอัตโนมัติใน {matchClosesSecondsLeft} วินาที
+                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - รอผลโหวตว่าจะเล่นแมตช์ใหม่ต่อหรือกลับล็อบบี้...
                 </p>
               ) : (
                 <p className="flex items-center text-xs text-slate-500">รอผลโหวตว่าจะเล่นต่อหรือกลับล็อบบี้...</p>
               )}
               <Button variant="secondary" onClick={handleBackToLobbyOrHome}>
-                {matchComplete ? "กลับหน้าหลัก" : "กลับไปที่ล็อบบี้"}
+                กลับไปที่ล็อบบี้
               </Button>
             </div>
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
@@ -278,13 +265,6 @@ export function WordHeadGame({
               hintCooldownEndsAt={privateState.hintCooldownEndsAt}
               isSubmitting={isGivingHint}
               onGiveHint={handleGiveHint}
-              isMarkingCorrect={isMarkingCorrect}
-              isMarkingWrong={isMarkingWrong}
-              onMarkCorrect={handleMarkCorrect}
-              onMarkWrong={handleMarkWrong}
-              votesCorrectCount={votesCorrectCount}
-              votesNeeded={votesNeeded}
-              selfVote={selfVote ?? null}
             />
             {actionError && <p className="text-sm text-red-400">{actionError}</p>}
           </>

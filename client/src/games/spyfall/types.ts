@@ -76,6 +76,16 @@ export interface SpyfallPublicState {
   // for the most votes last time, and the only legal accusation targets
   // until the round resolves. Null the rest of the time.
   debateCandidateIds: string[] | null;
+  // Whose turn it is to pick someone to ask (see SpyfallGame.tsx's
+  // AskTargetModal) - a strict relay: one random player starts, picks a
+  // target, that target answers and becomes the new asker, and so on.
+  // Null once the round leaves IN_PROGRESS.
+  askerUserId: string | null;
+  // Set the instant askerUserId picks a target - only that target may
+  // answer while this is set, and the asker can't pick anyone new until
+  // it's cleared (by that target answering, which also hands them the
+  // asker turn next).
+  pendingQuestion: { toUserId: string; toUsername: string; askedAt: number } | null;
 }
 
 // Only ever holds THIS browser's own player - never another player's role.

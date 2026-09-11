@@ -25,6 +25,7 @@ export function Lobby() {
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
+  const [kickTarget, setKickTarget] = useState<{ userId: string; username: string } | null>(null);
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
 
   const [attempt, setAttempt] = useState(0);
@@ -65,9 +66,18 @@ export function Lobby() {
       navigate("/home", { replace: true, state: payload.message ? { notice: payload.message } : undefined });
     }
 
+    // Only fires for the player who was actually kicked (see
+    // socketUtils.broadcastPlayerKicked on the server) - everyone else in
+    // the room just gets the usual room:update roster refresh instead.
+    function handleKicked(payload: { message?: string } = {}) {
+      clearRoom();
+      navigate("/home", { replace: true, state: payload.message ? { notice: payload.message } : undefined });
+    }
+
     socket.on("room:update", handleRoomUpdate);
     socket.on("game:start", handleGameStart);
     socket.on("room:disbanded", handleDisbanded);
+    socket.on("room:kicked", handleKicked);
     const stopJoining = subscribeToRoom(socket, roomCode,
       (response) => {
         setError(null);
@@ -92,6 +102,7 @@ export function Lobby() {
       socket.off("room:update", handleRoomUpdate);
       socket.off("game:start", handleGameStart);
       socket.off("room:disbanded", handleDisbanded);
+      socket.off("room:kicked", handleKicked);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode, attempt]);
@@ -132,6 +143,18 @@ export function Lobby() {
   const handleLeave = () => { void leaveOrDisband("room:leave"); };
   const handleConfirmDisband = () => { void leaveOrDisband("room:disband"); };
 
+  async function handleConfirmKick() {
+    if (!room || !kickTarget) return;
+    const targetUserId = kickTarget.userId;
+    setKickTarget(null);
+    try {
+      const response = await emitWithAck("room:kick", { roomId: room.id, targetUserId });
+      if (!response.ok) setError(response.error);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
+  }
+
   if (isJoining) {
     return (
       <div className="min-h-screen">
@@ -165,14 +188,15 @@ export function Lobby() {
   const hasEnoughPlayers = room.players.length >= room.game.minPlayers;
   const allReady = room.players.every((p) => p.isReady);
   const matchComplete = scoreboard?.matchComplete ?? false;
-  const canStart = hasEnoughPlayers && allReady && !matchComplete;
-  const startBlockedReason = matchComplete
-    ? "เล่นครบจำนวนรอบที่กำหนดไว้แล้ว"
-    : !hasEnoughPlayers
-      ? `ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คน`
-      : !allReady
-        ? "ผู้เล่นยังไม่พร้อมครบทุกคน"
-        : undefined;
+  // matchComplete no longer blocks starting another round here (see
+  // RoomService.assertRoundCanStart) - it's just a "🏆 played all N rounds"
+  // milestone now, same room, same lobby, ready up and go again.
+  const canStart = hasEnoughPlayers && allReady;
+  const startBlockedReason = !hasEnoughPlayers
+    ? `ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คน`
+    : !allReady
+      ? "ผู้เล่นยังไม่พร้อมครบทุกคน"
+      : undefined;
 
   return (
     <div className="min-h-screen">
@@ -197,6 +221,8 @@ export function Lobby() {
                 key={player.userId}
                 player={player}
                 isSelf={player.userId === currentUser?.id}
+                canKick={isHost && player.userId !== currentUser?.id}
+                onKick={() => setKickTarget({ userId: player.userId, username: player.username })}
               />
             ))}
           </ul>
@@ -230,11 +256,11 @@ export function Lobby() {
 
           {matchComplete && (
             <p className="mt-3 text-sm font-medium text-amber-400">
-              🏆 แมตช์นี้เล่นครบ {scoreboard?.numberOfRounds} รอบแล้ว ดูตารางคะแนนรวมด้านล่าง หรือสร้างห้องใหม่เพื่อเล่นแมตช์ต่อไป
+              🏆 แมตช์นี้เล่นครบ {scoreboard?.numberOfRounds} รอบแล้ว ดูตารางคะแนนรวมด้านล่าง - พร้อมกันแล้วกดเริ่มเกมเพื่อเล่นแมตช์ใหม่ในห้องนี้ต่อได้เลย
             </p>
           )}
 
-          {isHost && !canStart && !matchComplete && (
+          {isHost && !canStart && (
             <p className="mt-3 text-xs text-slate-500">
               {!hasEnoughPlayers
                 ? `รอผู้เล่นเข้าร่วมอย่างน้อย ${room.game.minPlayers} คนก่อนจึงจะเริ่มเกมได้`
@@ -257,6 +283,16 @@ export function Lobby() {
           cancelLabel="ยกเลิก"
           onConfirm={handleConfirmDisband}
           onCancel={() => setShowDisbandConfirm(false)}
+        />
+      )}
+      {kickTarget && (
+        <ConfirmModal
+          title={`เตะ ${kickTarget.username} ออกจากห้อง?`}
+          message="ผู้เล่นคนนี้จะถูกนำออกจากห้องทันที และต้องขอรหัสห้องเพื่อเข้ามาใหม่เอง"
+          confirmLabel="เตะออก"
+          cancelLabel="ยกเลิก"
+          onConfirm={() => void handleConfirmKick()}
+          onCancel={() => setKickTarget(null)}
         />
       )}
     </div>

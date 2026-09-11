@@ -62,13 +62,14 @@ export function validateQuestionPayload(payload: unknown): SpyfallQuestionPayloa
   if (!isNonEmptyString(toUserId)) {
     throw new GameActionError("ต้องเลือกผู้เล่นที่จะถามด้วย");
   }
-  if (!isNonEmptyString(text)) {
-    throw new GameActionError("กรุณากรอกคำถาม");
+  if (text !== undefined && text !== null && typeof text !== "string") {
+    throw new GameActionError("คำถามไม่ถูกต้อง");
   }
-  if (text.length > SPYFALL_MAX_TEXT_LENGTH) {
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (trimmed.length > SPYFALL_MAX_TEXT_LENGTH) {
     throw new GameActionError(`คำถามต้องมีความยาวไม่เกิน ${SPYFALL_MAX_TEXT_LENGTH} ตัวอักษร`);
   }
-  return { toUserId, text: text.trim() };
+  return { toUserId, text: trimmed || undefined };
 }
 
 export function validateAnswerPayload(payload: unknown): SpyfallAnswerPayload {
@@ -76,13 +77,14 @@ export function validateAnswerPayload(payload: unknown): SpyfallAnswerPayload {
     throw new GameActionError("ข้อมูลคำตอบไม่ถูกต้อง");
   }
   const { text } = payload as Record<string, unknown>;
-  if (!isNonEmptyString(text)) {
-    throw new GameActionError("กรุณากรอกคำตอบ");
+  if (text !== undefined && text !== null && typeof text !== "string") {
+    throw new GameActionError("คำตอบไม่ถูกต้อง");
   }
-  if (text.length > SPYFALL_MAX_TEXT_LENGTH) {
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (trimmed.length > SPYFALL_MAX_TEXT_LENGTH) {
     throw new GameActionError(`คำตอบต้องมีความยาวไม่เกิน ${SPYFALL_MAX_TEXT_LENGTH} ตัวอักษร`);
   }
-  return { text: text.trim() };
+  return { text: trimmed || undefined };
 }
 
 export function validateVotePayload(payload: unknown): SpyfallVotePayload {

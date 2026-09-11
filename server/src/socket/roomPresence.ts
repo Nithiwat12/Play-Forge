@@ -41,6 +41,16 @@ class RoomPresenceClass {
     return Boolean(this.rooms.get(roomId)?.get(userId)?.size);
   }
 
+  /** Drops every socket this user has open in the room at once - used when
+   * a host kicks someone, as opposed to removeConnection's one-socket-at-a-
+   * time bookkeeping for an ordinary disconnect/leave. */
+  removeUser(roomId: string, userId: string): void {
+    const users = this.rooms.get(roomId);
+    if (!users) return;
+    users.delete(userId);
+    if (users.size === 0) this.rooms.delete(roomId);
+  }
+
   getConnectedUserIds(roomId: string): string[] {
     return Array.from(this.rooms.get(roomId)?.keys() ?? []);
   }

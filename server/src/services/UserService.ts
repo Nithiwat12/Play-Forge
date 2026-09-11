@@ -183,14 +183,13 @@ export const UserService = {
   },
 };
 
-// A room sitting in WAITING can mean two very different things: a fresh
-// lobby nobody has started yet, or a match that already played out its
-// full configured round count and can never start another round (see
-// RoomService's assertRoundCanStart). The History page needs to tell those
-// apart - "rejoin" makes no sense for the latter, "view the scoreboard"
-// does - so this tags each room with the same matchComplete definition
-// ScoreboardService uses (numberOfRounds set AND reached), batched into one
-// query rather than one round-count lookup per room.
+// A room sitting in WAITING can mean two different things: a fresh lobby
+// nobody has started yet, or one that already played out its full
+// configured round count (see Scoreboard.matchComplete) - still fully
+// rejoinable and startable again (RoomService.assertRoundCanStart doesn't
+// block on this), just worth labeling differently in the History page so
+// "🏆 played all N rounds already" doesn't read as a plain ordinary lobby.
+// Batched into one query rather than one round-count lookup per room.
 async function attachMatchComplete(rooms: PublicRoom[]): Promise<PublicRoom[]> {
   const roomIdsWithLimit = rooms
     .filter((room) => room.settings?.numberOfRounds)

@@ -3,7 +3,7 @@ import { RoomService } from "../services/RoomService";
 import { GameManager } from "../games/core/GameManager";
 import { GameSessionService } from "../services/GameSessionService";
 import { RoomPresence } from "./roomPresence";
-import { withPresence, broadcastRoomClosed } from "./socketUtils";
+import { withPresence, broadcastRoomClosed, broadcastPlayerKicked } from "./socketUtils";
 import { joinRoomSchema } from "../utils/validators";
 import type { AppServer, AppSocket } from "./socketAuth";
 
@@ -143,6 +143,29 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
       ack({ ok: false, error: err instanceof Error ? err.message : "ยุบห้องไม่สำเร็จ" });
     }
   });
+
+  // Host-only: forcibly removes one other player from the lobby (see
+  // RoomService.kickPlayer - WAITING rooms only, matching where this is
+  // actually offered in Lobby.tsx). Unlike room:leave/room:disband, the
+  // affected player isn't the one calling this, so their own socket(s)
+  // need to be force-removed and told separately - see
+  // broadcastPlayerKicked - while everyone else just gets the usual
+  // room:update roster refresh.
+  socket.on(
+    "room:kick",
+    async ({ roomId, targetUserId }: { roomId: string; targetUserId: string }, ack: Ack = noopAck) => {
+      try {
+        const room = await RoomService.kickPlayer(userId, roomId, targetUserId);
+        await broadcastPlayerKicked(io, roomId, targetUserId, "คุณถูกโฮสต์เตะออกจากห้องนี้");
+        if (room) {
+          io.to(roomId).emit("room:update", { room: withPresence(room) });
+        }
+        ack({ ok: true });
+      } catch (err) {
+        ack({ ok: false, error: err instanceof Error ? err.message : "เตะผู้เล่นไม่สำเร็จ" });
+      }
+    }
+  );
 
   socket.on("disconnect", () => {
     const roomId: string | undefined = socket.data.currentRoomId;

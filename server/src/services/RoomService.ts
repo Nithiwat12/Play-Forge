@@ -86,11 +86,20 @@ async function findById(roomId: string): Promise<RoomWithRelations> {
   return room;
 }
 
-// The room-state half of "can a round start right now" - status, minimum
-// headcount, and the configured round limit if any. Shared by both
-// assertCanStart (which adds its own host-only/everyone-ready checks on
-// top) and assertRoomCanStartRound (which doesn't need those, since the
-// continue-vote system's majority "yes" is its own consent mechanism).
+// The room-state half of "can a round start right now" - status and minimum
+// headcount. Shared by both assertCanStart (which adds its own host-only/
+// everyone-ready checks on top) and assertRoomCanStartRound (which doesn't
+// need those, since the continue-vote system's majority "yes" is its own
+// consent mechanism).
+//
+// Deliberately does NOT block on settings.numberOfRounds being reached
+// anymore - that used to hard-stop here and the room would auto-close
+// shortly after (see the old scheduleMatchCompleteDisband), but there's no
+// real reason finishing a configured round count has to end the room: the
+// group might well want to keep playing together. Scoreboard.matchComplete
+// still flips true right on schedule for the "🏆 played all N rounds"
+// banner/table - this just no longer treats that as a reason to refuse
+// another round.
 async function assertRoundCanStart(room: RoomWithRelations): Promise<void> {
   if (room.status !== "WAITING") {
     throw ApiError.conflict("เกมเริ่มไปแล้วหรือจบไปแล้ว");
@@ -99,16 +108,6 @@ async function assertRoundCanStart(room: RoomWithRelations): Promise<void> {
     throw ApiError.badRequest(
       `${room.game.name} ต้องมีผู้เล่นอย่างน้อย ${room.game.minPlayers} คนถึงจะเริ่มได้`
     );
-  }
-
-  const settings = (room.settings as RoomSettings | null) ?? null;
-  if (settings?.numberOfRounds) {
-    const roundsPlayed = await prisma.gameSession.count({
-      where: { roomId: room.id, status: "COMPLETED" },
-    });
-    if (roundsPlayed >= settings.numberOfRounds) {
-      throw ApiError.conflict("เล่นครบจำนวนรอบที่กำหนดไว้แล้ว");
-    }
   }
 }
 
@@ -302,6 +301,32 @@ export const RoomService = {
     }
 
     return toPublicRoom(await findById(room.id));
+  },
+
+  // Host-only: forcibly removes ONE other player from the room while it's
+  // still in its lobby (WAITING) - same DB effect as that player leaving on
+  // their own (leaveRoomInternal handles host migration etc. too, though it
+  // never applies here since a host can't kick themselves), just
+  // host-initiated instead. Scoped to WAITING because that's the only place
+  // this is offered in the UI (Lobby.tsx) - kicking mid-round would also
+  // need the game engine to handle a forced removal, a different problem.
+  async kickPlayer(hostId: string, roomId: string, targetUserId: string): Promise<PublicRoom | null> {
+    const room = await findById(roomId);
+    if (room.hostId !== hostId) {
+      throw ApiError.forbidden("เฉพาะโฮสต์เท่านั้นที่เตะผู้เล่นออกได้");
+    }
+    if (targetUserId === hostId) {
+      throw ApiError.badRequest("เตะตัวเองออกไม่ได้ - ใช้ปุ่มออกจากห้องหรือยุบห้องแทน");
+    }
+    if (room.status !== "WAITING") {
+      throw ApiError.conflict("เตะผู้เล่นออกได้เฉพาะตอนอยู่ในห้องรอเท่านั้น");
+    }
+    const target = room.players.find((p) => p.userId === targetUserId);
+    if (!target) {
+      throw ApiError.notFound("ไม่พบผู้เล่นนี้ในห้องแล้ว");
+    }
+
+    return this.leaveRoomInternal(targetUserId, room);
   },
 
   async setReadyById(userId: string, roomId: string, isReady: boolean): Promise<PublicRoom> {
