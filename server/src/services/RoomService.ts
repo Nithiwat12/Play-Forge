@@ -138,9 +138,11 @@ export const RoomService = {
     // Minutes are friendlier for a host to type; the engine works in
     // seconds, so the conversion happens once, right at creation time.
     const settings: RoomSettings | undefined =
-      input.settings?.discussionMinutes ||
-      input.settings?.numberOfRounds ||
-      input.settings?.categoryMode
+      game.slug !== "island_betrayal" && (
+        input.settings?.discussionMinutes ||
+        input.settings?.numberOfRounds ||
+        input.settings?.categoryMode
+      )
         ? {
             ...(input.settings.discussionMinutes
               ? { discussionSeconds: input.settings.discussionMinutes * 60 }

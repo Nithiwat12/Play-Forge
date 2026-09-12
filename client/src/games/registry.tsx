@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { SpyfallGame } from "./spyfall/SpyfallGame";
 import { WordHeadGame } from "./wordhead/WordHeadGame";
+import { IslandBetrayalGame } from "./island_betrayal/IslandBetrayalGame";
 import type { Room, Scoreboard } from "../types";
 
 export interface GameComponentProps {
@@ -21,6 +22,7 @@ export interface GameComponentProps {
 // one entry here plus its own games/<slug>/ folder - PlayPage and every
 // other platform page stay untouched.
 export const GAME_COMPONENTS: Record<string, ComponentType<GameComponentProps>> = {
+  island_betrayal: IslandBetrayalGame,
   spyfall: SpyfallGame as ComponentType<GameComponentProps>,
   wordhead: WordHeadGame as ComponentType<GameComponentProps>,
 };

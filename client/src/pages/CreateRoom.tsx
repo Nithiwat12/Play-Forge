@@ -31,6 +31,7 @@ export function CreateRoom() {
   const [limitRounds, setLimitRounds] = useState(false);
   const [numberOfRounds, setNumberOfRounds] = useState(3);
   const [categoryMode, setCategoryMode] = useState<CategoryMode>("RANDOM");
+  const isIsland = gameSlug === "island_betrayal";
   const isWordHead = gameSlug === "wordhead";
   const isSpyfall = gameSlug === "spyfall";
   const CATEGORIES = isWordHead ? WORDHEAD_CATEGORIES : SPYFALL_CATEGORIES;
@@ -50,7 +51,7 @@ export function CreateRoom() {
         maxPlayers,
         usePassword,
         password: usePassword ? password : undefined,
-        settings: {
+        settings: isIsland ? {} : {
           ...(discussionMinutes ? { discussionMinutes } : {}),
           ...(limitRounds ? { numberOfRounds } : {}),
           categoryMode,
@@ -96,7 +97,7 @@ export function CreateRoom() {
               type="number"
               label="จำนวนผู้เล่นสูงสุด"
               required
-              min={3}
+              min={isIsland ? 4 : 3}
               max={8}
               value={maxPlayers}
               onChange={(e) => setMaxPlayers(Number(e.target.value))}
@@ -114,6 +115,7 @@ export function CreateRoom() {
               />
             )}
 
+            {!isIsland && <>
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input
                 type="checkbox"
@@ -176,6 +178,9 @@ export function CreateRoom() {
                 </p>
               )}
             </div>
+
+            </>}
+            {isIsland && <p className="rounded-lg bg-slate-900 p-4 text-sm text-slate-300">4–8 คน · กลางวัน 5 นาที · กลางคืน 30 วินาที · หนี 45 วินาที · สูงสุด 10 วันบนเกาะ จบแล้วบันทึกผลแยกแต่ละเกม</p>}
 
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input
