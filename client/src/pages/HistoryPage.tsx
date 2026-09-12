@@ -46,8 +46,8 @@ export function HistoryPage() {
     if (!window.confirm(confirmMessage)) return;
     setDeletingId(entry.gameSessionId);
     try {
-      await api.delete(`/users/me/history/room/${entry.roomId}`);
-      setHistory((prev) => prev.filter((e) => e.roomId !== entry.roomId));
+      await api.delete(`/users/me/history/${entry.gameSessionId}`);
+      setHistory((prev) => prev.filter((e) => e.gameSessionId !== entry.gameSessionId));
     } catch (err) {
       setError(extractErrorMessage(err, "ลบประวัติเกมไม่สำเร็จ"));
     } finally {

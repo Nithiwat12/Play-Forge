@@ -1,3 +1,4 @@
+import { matchKey, readMatch } from "./matchMetadata";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../utils/ApiError";
 import type { RoomSettings } from "../types";
@@ -30,12 +31,7 @@ export interface Scoreboard {
   players: { userId: string; username: string }[];
 }
 
-// Rolls up every completed round played in a room into a running score
-// table. Deliberately game-agnostic at the query level - it only assumes
-// each round's GameHistory.resultData.details carries an opaque `scores`
-// map of userId -> points, which is exactly what BaseGame.end() already
-// returns as `details`. A future non-Spyfall game just needs to populate
-// that same `scores` field on its own result shape to plug into this.
+// Scores cover one match only: the current match, the latest result, or a selected history entry.
 export const ScoreboardService = {
   async getScoreboardByRoomId(roomId: string): Promise<Scoreboard> {
     const room = await prisma.room.findUnique({ where: { id: roomId }, select: { settings: true } });
@@ -44,23 +40,22 @@ export const ScoreboardService = {
     return buildScoreboard(roomId, (room.settings as RoomSettings | null) ?? null, true);
   },
 
-  async getScoreboardByRoomCode(roomCode: string, currentMatch = false): Promise<Scoreboard> {
+  async getScoreboardByRoomCode(roomCode: string, currentMatch = false, gameSessionId?: string): Promise<Scoreboard> {
     const room = await prisma.room.findUnique({
       where: { roomCode: roomCode.toUpperCase() },
       select: { id: true, settings: true },
     });
     if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
 
-    return buildScoreboard(room.id, (room.settings as RoomSettings | null) ?? null, currentMatch);
+    return buildScoreboard(room.id, (room.settings as RoomSettings | null) ?? null, currentMatch, gameSessionId);
   },
 };
 
-async function buildScoreboard(roomId: string, settings: RoomSettings | null, currentMatch: boolean): Promise<Scoreboard> {
-  const numberOfRounds = settings?.numberOfRounds ?? null;
+async function buildScoreboard(roomId: string, settings: RoomSettings | null, currentMatch: boolean, gameSessionId?: string): Promise<Scoreboard> {
+  let numberOfRounds = Math.max(1, settings?.numberOfRounds ?? 1);
 
-  const [sessions, allPlayers] = await Promise.all([prisma.gameSession.findMany({
+  const [allSessions, allPlayers] = await Promise.all([prisma.gameSession.findMany({
     where: { roomId, status: "COMPLETED" },
-    ...(currentMatch ? { skip: settings?.spyfallRoundOffset ?? 0 } : {}),
     include: { history: true },
     orderBy: [{ startedAt: "asc" }, { id: "asc" }],
   }),
@@ -72,6 +67,17 @@ async function buildScoreboard(roomId: string, settings: RoomSettings | null, cu
     where: { roomId },
     select: { userId: true, user: { select: { username: true } } },
   })]);
+  let sessions = allSessions;
+  if (currentMatch) {
+    sessions = allSessions.slice(settings?.matchRoundOffset ?? Math.max(settings?.spyfallRoundOffset ?? 0, allSessions.length - allSessions.length % numberOfRounds));
+  } else if (allSessions.length > 0) {
+    const targetIndex = gameSessionId ? allSessions.findIndex((session) => session.id === gameSessionId) : allSessions.length - 1;
+    if (targetIndex < 0) throw ApiError.notFound("ไม่พบเกมนี้ในห้อง");
+    const target = allSessions[targetIndex];
+    const key = matchKey(target, targetIndex, numberOfRounds);
+    sessions = allSessions.filter((session, index) => matchKey(session, index, numberOfRounds) === key);
+    numberOfRounds = readMatch(target.history[0]?.resultData)?.numberOfRounds ?? numberOfRounds;
+  }
   const usernameByUserId = new Map(allPlayers.map((p) => [p.userId, p.user.username]));
 
   const rounds: RoundScoreEntry[] = sessions.map((session, index) => {

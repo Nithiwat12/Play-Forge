@@ -121,7 +121,7 @@ export function CreateRoom() {
                 onChange={(e) => setLimitRounds(e.target.checked)}
                 className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-brand-600"
               />
-              กำหนดจำนวนรอบ (ไม่ติ๊ก = เล่นได้ไม่จำกัดรอบ)
+              เล่นแบบหลายรอบสะสมคะแนน (ไม่ติ๊ก = แยกผลแต่ละเกม)
             </label>
 
             {limitRounds && (

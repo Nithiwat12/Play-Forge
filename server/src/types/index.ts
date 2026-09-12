@@ -47,6 +47,7 @@ export interface RoomSettings {
   numberOfRounds?: number;
   // Completed rounds archived before the current Spy Hunt match.
   spyfallRoundOffset?: number;
+  matchRoundOffset?: number;
   // How the location/topic for each round gets picked. Unset/"RANDOM" =
   // every round draws from every location, no restriction. "FIXED" =
   // every round of this match is restricted to `category` (chosen once at

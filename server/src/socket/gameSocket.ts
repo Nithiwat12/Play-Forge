@@ -1,3 +1,4 @@
+import { RoomPresence } from "./roomPresence";
 import { GameManager } from "../games/core/GameManager";
 import { GAME_ENGINE_EVENTS } from "../games/core/types";
 import type { BaseGame } from "../games/core/BaseGame";
@@ -13,6 +14,7 @@ const noopAck: Ack = () => {};
 
 interface ActiveSessionInfo {
   sessionId: string;
+  match: { id: string; numberOfRounds: number };
 }
 
 // roomId -> the GameSession row backing the currently active game, so the
@@ -123,12 +125,17 @@ async function startRoundForRoom(io: AppServer, room: StartableRoom): Promise<vo
   // into starting two rounds at once.
   clearContinueState(room.id);
 
-  const players = room.players.map((p) => ({ userId: p.userId, username: p.user.username }));
+  await RoomService.prepareMatch(room.id);
+  room = await RoomService.getRoomById(room.id);
+  const players = room.players.filter((p) => RoomPresence.isConnected(room.id, p.userId)).map((p) => ({ userId: p.userId, username: p.user.username }));
 
   const game = GameManager.startGame(room.id, room.game.slug, players, room.settings ?? undefined);
 
   const session = await GameSessionService.createSession(room.id, room.gameId);
-  activeSessions.set(room.id, { sessionId: session.id });
+  activeSessions.set(room.id, { sessionId: session.id, match: {
+    id: `${room.id}:${(room.settings as RoomSettings | null)?.matchRoundOffset ?? 0}`,
+    numberOfRounds: Math.max(1, (room.settings as RoomSettings | null)?.numberOfRounds ?? 1),
+  } });
 
   await RoomService.markPlaying(room.id);
 
@@ -159,14 +166,12 @@ async function finalizeGame(io: AppServer, roomId: string) {
   const result = GameManager.endGame(roomId);
   if (!result) return;
 
-  await GameSessionService.finalizeSession(session.sessionId, result);
+  await GameSessionService.finalizeSession(session.sessionId, result, session.match);
 
   const scoreboard = await ScoreboardService.getScoreboardByRoomId(roomId);
-  const completedRoom = await RoomService.getRoomById(roomId);
-  const resetSpyfall = completedRoom.game.slug === "spyfall" && scoreboard.matchComplete;
-  if (resetSpyfall) {
+  if (scoreboard.matchComplete) {
     clearContinueState(roomId);
-    await RoomService.resetSpyfallMatch(roomId);
+    await RoomService.resetMatch(roomId);
   }
   await RoomService.resetReadiness(roomId);
   await RoomService.markWaiting(roomId);
@@ -187,7 +192,7 @@ async function finalizeGame(io: AppServer, roomId: string) {
   // `locationCategory` string on it (as Spyfall's does) is read purely as a
   // passthrough value - never interpreted - to support "same category
   // again" for a PER_ROUND match.
-  if (scoreboard) {
+  if (session.match.numberOfRounds > 1) {
     const lastCategory =
       typeof (result.details as Record<string, unknown> | undefined)?.locationCategory === "string"
         ? ((result.details as Record<string, unknown>).locationCategory as string)
@@ -202,7 +207,7 @@ async function openContinuePoll(io: AppServer, roomId: string, lastCategory: str
   if (continuePolls.has(roomId)) return; // shouldn't happen, but never stack polls
   const room = await RoomService.getRoomById(roomId).catch(() => null);
   // Nobody left to ask (or the room vanished) - nothing to poll for.
-  if (!room || room.players.length === 0) return;
+  if (!room || room.players.length === 0 || ((room.settings as RoomSettings | null)?.numberOfRounds ?? 1) <= 1) return;
   if (continuePolls.has(roomId) || GameManager.isGameActive(roomId) || room.status !== "WAITING") return;
 
   const timeout = setTimeout(() => {
@@ -213,7 +218,7 @@ async function openContinuePoll(io: AppServer, roomId: string, lastCategory: str
   io.to(roomId).emit("game:continuePoll", {
     roomId,
     deadline: Date.now() + CONTINUE_VOTE_TIMEOUT_MS,
-    totalPlayers: room.players.length,
+    totalPlayers: RoomPresence.getConnectedUserIds(roomId).length,
   });
 }
 
@@ -287,6 +292,23 @@ async function triggerNextRound(io: AppServer, roomId: string): Promise<void> {
   }
 }
 
+export async function refreshContinuePoll(io: AppServer, roomId: string): Promise<void> {
+  const poll = continuePolls.get(roomId);
+  if (!poll) return;
+  const connected = new Set(RoomPresence.getConnectedUserIds(roomId));
+  for (const id of poll.votes.keys()) if (!connected.has(id)) poll.votes.delete(id);
+  const totalPlayers = connected.size;
+  const yes = Array.from(poll.votes.values()).filter(Boolean).length;
+  const no = poll.votes.size - yes;
+  const required = Math.floor(totalPlayers / 2) + 1;
+  if (totalPlayers === 0 || no >= required) await resolveContinuePoll(io, roomId, false);
+  else if (yes >= required) await resolveContinuePoll(io, roomId, true);
+  else if (poll.votes.size === totalPlayers) await resolveContinuePoll(io, roomId, yes > no);
+  else io.to(roomId).emit("game:continueUpdate", {
+    roomId, votedUserIds: Array.from(poll.votes.keys()), votesFor: yes, votesAgainst: no, totalPlayers,
+  });
+}
+
 export function registerGameSocket(io: AppServer, socket: AppSocket) {
   const userId = socket.data.user.id;
 
@@ -305,6 +327,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
       if (!socket.rooms.has(roomId)) throw new Error("กรุณากลับเข้าห้องก่อนทำรายการ");
       const room = await RoomService.getRoomById(roomId);
       if (!room.players.some((p) => p.userId === userId)) throw new Error("คุณไม่ได้อยู่ในห้องนี้");
+      if (((room.settings as RoomSettings | null)?.numberOfRounds ?? 1) <= 1) throw new Error("เกมรอบเดียวเริ่มเกมใหม่จากล็อบบี้");
       if (room.game.slug !== "spyfall" && room.game.slug !== "wordhead") throw new Error("เกมนี้ไม่รองรับการเล่นต่อจากหน้านี้");
       if (room.status !== "WAITING" || GameManager.isGameActive(roomId)) throw new Error("เกมกำลังเล่นอยู่");
       if (pendingRoundStarts.has(roomId) || pendingCategoryPicks.has(roomId)) throw new Error("กำลังเตรียมรอบถัดไป กรุณารอสักครู่");
@@ -333,35 +356,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
 
         poll.votes.set(userId, Boolean(wantsContinue));
 
-        const room = await RoomService.getRoomById(roomId).catch(() => null);
-        const totalPlayers = room?.players.length ?? poll.votes.size;
-
-        let yes = 0;
-        let no = 0;
-        for (const v of poll.votes.values()) {
-          if (v) yes++;
-          else no++;
-        }
-        const required = Math.floor(totalPlayers / 2) + 1;
-
-        if (yes >= required) {
-          await resolveContinuePoll(io, roomId, true);
-        } else if (no >= required) {
-          await resolveContinuePoll(io, roomId, false);
-        } else if (poll.votes.size >= totalPlayers) {
-          // Everyone has answered but neither side reached a majority
-          // (only possible with an even headcount split down the middle) -
-          // resolve now rather than waiting out the rest of the timeout.
-          await resolveContinuePoll(io, roomId, yes > no);
-        } else {
-          io.to(roomId).emit("game:continueUpdate", {
-            roomId,
-            votedUserIds: Array.from(poll.votes.keys()),
-            votesFor: yes,
-            votesAgainst: no,
-            totalPlayers,
-          });
-        }
+        await refreshContinuePoll(io, roomId);
         ack({ ok: true });
       } catch (err) {
         ack({ ok: false, error: err instanceof Error ? err.message : "โหวตไม่สำเร็จ" });

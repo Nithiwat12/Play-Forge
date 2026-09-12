@@ -195,7 +195,14 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       return;
     }
     this.disconnected.add(userId);
+    this.votes.delete(userId);
+    this.votePoll?.votes.delete(userId);
     this.reassignStuckAsker();
+    this.checkVotePoll();
+    if (this.phase === "VOTING" && this.connectedPlayerIds().length > 0 &&
+        this.connectedPlayerIds().every((id) => this.votes.has(id))) {
+      this.resolveByVotes("ผู้เล่นที่ยังอยู่โหวตครบแล้ว");
+    }
     this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
 
@@ -238,6 +245,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     if (this.finished) {
       throw new GameActionError("เกมนี้จบไปแล้ว");
     }
+    if (this.disconnected.has(userId)) throw new GameActionError("กรุณากลับเข้าห้องก่อนทำรายการ");
 
     switch (actionType) {
       case SPYFALL_ACTIONS.QUESTION:
@@ -377,17 +385,27 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       throw new GameActionError("ไม่มีการขอเปิดโหวตในขณะนี้");
     }
     this.votePoll.votes.set(userId, accept);
+    this.checkVotePoll();
+  }
 
+  private connectedPlayerIds(): string[] {
+    return this.getPlayers().map((p) => p.userId).filter((id) => !this.disconnected.has(id));
+  }
+
+  private checkVotePoll(): void {
+    if (!this.votePoll) return;
+    const total = this.connectedPlayerIds().length;
+    if (total === 0) { this.resolveVotePoll(false); return; }
     let yes = 0;
     let no = 0;
     for (const v of this.votePoll.votes.values()) (v ? yes++ : no++);
-    const required = requiredPollMajority(this.players.size);
+    const required = requiredPollMajority(total);
 
     if (yes >= required) {
       this.resolveVotePoll(true);
     } else if (no >= required) {
       this.resolveVotePoll(false);
-    } else if (this.votePoll.votes.size >= this.players.size) {
+    } else if (this.votePoll.votes.size >= total) {
       // Defensive fallback only - with required set to "at least half"
       // (see requiredPollMajority), whichever side the last vote pushes
       // to totalPlayers/2 already triggers one of the two branches above
@@ -487,7 +505,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     // SPYFALL_VOTING_SECONDS clock instead (see forceEndByTimer) - the
     // timer stays as the fallback, this just isn't a second, earlier way
     // for the round to end.
-    if (this.votes.size >= this.players.size) {
+    if (this.connectedPlayerIds().every((id) => this.votes.has(id))) {
       this.resolveByVotes("ทุกคนโหวตครบแล้ว");
     }
   }
@@ -819,7 +837,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       deadline: this.votePoll.deadline,
       votesFor,
       votesAgainst,
-      totalPlayers: this.players.size,
+      totalPlayers: this.connectedPlayerIds().length,
       responderIds: Array.from(this.votePoll.votes.keys()),
     };
   }

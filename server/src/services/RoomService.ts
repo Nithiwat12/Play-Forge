@@ -378,14 +378,25 @@ export const RoomService = {
     });
   },
 
-  async resetSpyfallMatch(roomId: string): Promise<void> {
+  async prepareMatch(roomId: string): Promise<void> {
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { settings: true } });
+    if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
+    const settings = (room.settings as RoomSettings | null) ?? {};
+    const count = await prisma.gameSession.count({ where: { roomId, status: "COMPLETED" } });
+    const rounds = Math.max(1, settings.numberOfRounds ?? 1);
+    let offset = settings.matchRoundOffset ?? settings.spyfallRoundOffset ?? (count - count % rounds);
+    if (count - offset >= rounds) offset = count;
+    await prisma.room.update({ where: { id: roomId }, data: { settings: { ...settings, matchRoundOffset: offset } as any } });
+  },
+
+  async resetMatch(roomId: string): Promise<void> {
     const room = await prisma.room.findUnique({ where: { id: roomId }, select: { settings: true } });
     if (!room) throw ApiError.notFound("ไม่พบห้องนี้");
     const completed = await prisma.gameSession.count({ where: { roomId, status: "COMPLETED" } });
     const settings = (room.settings as RoomSettings | null) ?? {};
     await prisma.room.update({
       where: { id: roomId },
-      data: { settings: { ...settings, spyfallRoundOffset: completed } as any },
+      data: { settings: { ...settings, matchRoundOffset: completed } as any },
     });
   },
 

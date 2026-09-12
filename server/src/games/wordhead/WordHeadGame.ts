@@ -121,7 +121,19 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       return;
     }
     this.disconnected.add(userId);
-    this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+    this.guessVotes.delete(userId);
+    if (this.finished) return;
+    if (this.currentTurnUserId === userId) {
+      this.pendingGuess = null;
+      this.guessVotes.clear();
+      this.finishTurn(userId, false);
+      this.appendSystemLog(`${this.players.get(userId)?.username} ออกจากเกม ข้ามตาให้คนถัดไป`);
+      this.advanceTurn();
+    } else if (this.pendingGuess) {
+      this.resolveGuessVotes();
+    } else {
+      this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+    }
   }
 
   reconnectPlayer(userId: string): void {
@@ -217,9 +229,9 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     });
   }
 
-  // All players except the guesser must vote, including players reconnecting.
+  // All remaining connected players except the guesser must vote.
   private eligibleVoterIds(): string[] {
-    return this.getPlayers().map((p) => p.userId).filter((id) => id !== this.currentTurnUserId);
+    return this.getPlayers().map((p) => p.userId).filter((id) => id !== this.currentTurnUserId && !this.disconnected.has(id));
   }
 
   private handleGuessVote(judgeUserId: string, vote: "correct" | "wrong", payload: unknown): void {
@@ -236,7 +248,18 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     }
     if (this.guessVotes.has(judgeUserId)) throw new GameActionError("คุณโหวตคำตอบนี้แล้ว");
     this.guessVotes.set(judgeUserId, vote);
+    this.resolveGuessVotes();
+  }
+
+  private resolveGuessVotes(): void {
+    if (!this.pendingGuess || !this.currentTurnUserId || this.finished) return;
     const eligible = this.eligibleVoterIds();
+    if (eligible.length === 0) {
+      this.pendingGuess = null;
+      this.guessVotes.clear();
+      this.appendSystemLog("ไม่มีคนใบ้เหลืออยู่ รอผู้เล่นกลับมาหรือกดข้ามตาได้");
+      return;
+    }
     if (!eligible.every((id) => this.guessVotes.has(id))) {
       this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
       return;
@@ -307,6 +330,10 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     while (idx + 1 < this.turnOrder.length) {
       idx += 1;
       const candidate = this.turnOrder[idx];
+      if (this.disconnected.has(candidate)) {
+        this.hasGone.add(candidate);
+        continue;
+      }
       if (!this.hasGone.has(candidate)) {
         this.currentTurnIndex = idx;
         this.beginTurn(candidate);
@@ -314,7 +341,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       }
     }
 
-    this.concludeRound("ทุกคนทายคำของตัวเองครบแล้ว!");
+    this.concludeRound("จบรอบแล้ว ผู้เล่นที่ยังอยู่เล่นครบทุกคนแล้ว!");
   }
 
   private beginTurn(userId: string): void {

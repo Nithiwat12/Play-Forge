@@ -56,6 +56,7 @@ export function WordHeadGame({
 
   const isFinished = publicState.phase === "FINISHED";
   const isMyTurn = publicState.phase === "TURN" && publicState.currentTurnUserId === selfUserId;
+  const isMultiRoundMatch = (room.settings?.numberOfRounds ?? 1) > 1;
   const matchComplete = scoreboard?.matchComplete ?? false;
 
   const usernameByUserId = useMemo(() => {
@@ -71,9 +72,9 @@ export function WordHeadGame({
     ? usernameByUserId.get(publicState.currentTurnUserId) ?? "ไม่ทราบชื่อ"
     : null;
 
-  // Wait for the whole roster except the guesser, matching the server.
+  // Wait for every remaining connected player except the guesser.
   const eligibleVoterIds = useMemo(
-    () => publicState.players.filter((p) => p.userId !== publicState.currentTurnUserId).map((p) => p.userId),
+    () => publicState.players.filter((p) => p.connected && p.userId !== publicState.currentTurnUserId).map((p) => p.userId),
     [publicState.players, publicState.currentTurnUserId]
   );
   const votesNeeded = eligibleVoterIds.length;
@@ -110,9 +111,9 @@ export function WordHeadGame({
   // seconds where lower is better, so this re-sorts ascending instead of
   // reusing that shared component as-is.
   const cumulativeEntries: WordHeadTimeEntry[] = useMemo(() => {
-    if (!scoreboard || scoreboard.roundsPlayed <= 1) return [];
+    if (!isMultiRoundMatch || !scoreboard || scoreboard.roundsPlayed <= 1) return [];
     return scoreboard.totals.map((t) => ({ userId: t.userId, username: t.username, seconds: t.total }));
-  }, [scoreboard]);
+  }, [scoreboard, isMultiRoundMatch]);
 
   // The room stays open and playable after a match completes now (see
   // gameSocket's finalizeGame - it no longer auto-closes the room), so this
@@ -232,14 +233,14 @@ export function WordHeadGame({
             )}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              {matchComplete ? (
+              {isMultiRoundMatch && matchComplete ? (
                 <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
-                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม
+                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - {isMultiRoundMatch ? "เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม" : "บันทึกผลเกมนี้แล้ว กลับล็อบบี้เพื่อเริ่มเกมใหม่"}
                 </p>
               ) : (
-                <p className="flex items-center text-xs text-slate-500">เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม</p>
+                <p className="flex items-center text-xs text-slate-500">{isMultiRoundMatch ? "เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม" : "บันทึกผลเกมนี้แล้ว กลับล็อบบี้เพื่อเริ่มเกมใหม่"}</p>
               )}
-              <Button onClick={() => { void handlePlayAgain(); }} isLoading={isReplaying}>เล่นต่อ</Button>
+              {isMultiRoundMatch && <Button onClick={() => { void handlePlayAgain(); }} isLoading={isReplaying}>เล่นต่อ</Button>}
               <Button variant="secondary" onClick={handleBackToLobbyOrHome}>
                 กลับไปที่ล็อบบี้
               </Button>

@@ -53,7 +53,7 @@ export function GameResult() {
     setIsLoadingScoreboard(true);
     setScoreboardError(null);
     api
-      .get<{ scoreboard: Scoreboard }>(`/rooms/${entry.roomCode}/scoreboard`)
+      .get<{ scoreboard: Scoreboard }>(`/rooms/${entry.roomCode}/scoreboard?gameSessionId=${encodeURIComponent(entry.gameSessionId)}`)
       .then((res) => {
         if (!cancelled) setScoreboard(res.data.scoreboard);
       })
@@ -67,7 +67,7 @@ export function GameResult() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.roomCode]);
+  }, [entry?.roomCode, entry?.gameSessionId]);
 
   // The Spy is a different person round to round, so "สปายคือ X" only ever
   // makes sense for a single round taken on its own - once the room has

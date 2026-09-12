@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma";
+import type { MatchMetadata } from "./matchMetadata";
 import type { GameResult } from "../games/core/types";
 
 // Bridges the generic Game Engine (BaseGame/GameManager) to persistence.
@@ -25,7 +26,7 @@ export const GameSessionService = {
     });
   },
 
-  async finalizeSession(sessionId: string, result: GameResult) {
+  async finalizeSession(sessionId: string, result: GameResult, match?: MatchMetadata) {
     await prisma.$transaction([
       prisma.gameSession.update({
         where: { id: sessionId },
@@ -39,6 +40,7 @@ export const GameSessionService = {
         data: {
           gameSessionId: sessionId,
           resultData: {
+            ...(match ? { match } : {}),
             summary: result.summary,
             winnerUserIds: result.winnerUserIds,
             details: result.details,

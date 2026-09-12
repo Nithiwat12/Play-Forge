@@ -1,4 +1,4 @@
-import { abortRoomGame } from "./gameSocket";
+import { abortRoomGame, refreshContinuePoll } from "./gameSocket";
 import { RoomService } from "../services/RoomService";
 import { GameManager } from "../games/core/GameManager";
 import { GameSessionService } from "../services/GameSessionService";
@@ -40,6 +40,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
           await socket.leave(previousRoomId);
           if (RoomPresence.removeConnection(previousRoomId, userId, socket.id)) {
             GameManager.getGame(previousRoomId)?.removePlayer(userId);
+            void refreshContinuePoll(io, previousRoomId).catch(console.error);
           }
         }
         await socket.join(room.id);
@@ -81,6 +82,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
       delete socket.data.currentRoomId;
       if (RoomPresence.removeConnection(roomId, userId, socket.id)) {
         GameManager.getGame(roomId)?.removePlayer(userId);
+        void refreshContinuePoll(io, roomId).catch(console.error);
       }
       ack({ ok: true });
       const room = await RoomService.getPublicRoomById(roomId).catch(() => null);
@@ -96,6 +98,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
 
       GameManager.removePlayer(roomId, userId);
       RoomPresence.removeConnection(roomId, userId, socket.id);
+      void refreshContinuePoll(io, roomId).catch(console.error);
       socket.leave(roomId);
       delete socket.data.currentRoomId;
 
@@ -174,6 +177,7 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
     const fullyDisconnected = RoomPresence.removeConnection(roomId, userId, socket.id);
     if (!fullyDisconnected) return;
     GameManager.getGame(roomId)?.removePlayer(userId);
+        void refreshContinuePoll(io, roomId).catch(console.error);
 
     // A dropped connection is NOT the same as an explicit room:leave - the
     // player keeps their seat (and their game role, if a game is active)
