@@ -32,9 +32,20 @@ export function SpyfallGame({
   privateState,
   selfUserId,
   onAction,
+  onReplay,
   scoreboard,
 }: SpyfallGameProps) {
   const navigate = useNavigate();
+  const [isReplaying, setIsReplaying] = useState(false);
+  async function handlePlayAgain() {
+    if (isReplaying) return;
+    setIsReplaying(true);
+    setActionError(null);
+    try {
+      const response = await onReplay();
+      if (!response.ok) setActionError(response.error ?? "เล่นต่อไม่สำเร็จ");
+    } finally { setIsReplaying(false); }
+  }
   const [isAskModalOpen, setIsAskModalOpen] = useState(false);
   const [questionText, setQuestionText] = useState("");
   const [isAsking, setIsAsking] = useState(false);
@@ -359,13 +370,14 @@ export function SpyfallGame({
             <div className="mt-4 flex flex-wrap items-center gap-3">
               {matchComplete ? (
                 <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
-                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - รอผลโหวตว่าจะเล่นแมตช์ใหม่ต่อหรือกลับล็อบบี้...
+                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม
                 </p>
               ) : (
                 <p className="flex items-center text-xs text-slate-500">
-                  รอผลโหวตว่าจะเล่นต่อหรือกลับล็อบบี้...
+                  เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม
                 </p>
               )}
+              <Button onClick={() => { void handlePlayAgain(); }} isLoading={isReplaying}>เล่นต่อ</Button>
               <Button variant="secondary" onClick={handleBackToLobbyOrHome}>
                 กลับไปที่ล็อบบี้
               </Button>

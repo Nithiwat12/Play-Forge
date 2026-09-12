@@ -8,21 +8,14 @@ interface GuessJudgeModalProps {
   isMarkingWrong: boolean;
   onMarkCorrect: () => void;
   onMarkWrong: () => void;
-  // Winning needs EVERY currently-connected non-turn player to vote ตอบถูก
-  // (unanimous) - see WordHeadGame.eligibleVoterIds. selfVote reflects
-  // this viewer's own vote so their button can show "waiting on others"
-  // instead of looking clickable again after they've already voted.
   votesCorrectCount: number;
+  votesCount: number;
+  waitingNames: string[];
+  error: string | null;
   votesNeeded: number;
   selfVote: "correct" | "wrong" | null;
 }
 
-// Pops up for everyone EXCEPT the up player the moment they type a guess
-// (see publicState.pendingGuess) - separate from the always-available
-// ✅/❌ buttons in HintPanel so a typed guess can't just get missed at the
-// bottom of the screen. Disappears on its own once anyone resolves it
-// (pendingGuess clears server-side either way - see WordHeadGame's
-// handleMarkCorrect/handleMarkWrong), same pattern as VoteRequestModal.
 export function GuessJudgeModal({
   guesserUsername,
   guessText,
@@ -31,28 +24,33 @@ export function GuessJudgeModal({
   onMarkCorrect,
   onMarkWrong,
   votesCorrectCount,
+  votesCount,
+  waitingNames,
+  error,
   votesNeeded,
   selfVote,
 }: GuessJudgeModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-      <Card className="w-full max-w-sm border-amber-700">
-        <p className="text-xs font-semibold uppercase tracking-wide text-amber-400">🔔 {guesserUsername} ทายว่า</p>
-        <h2 className="mt-1 text-2xl font-bold text-white">"{guessText}"</h2>
-        <p className="mt-2 text-sm text-slate-400">ถูกไหม? ต้องกด "ถูกต้อง" ให้ครบทุกคนถึงจะนับเป็นชนะ</p>
+      <Card className="max-h-[85vh] w-full max-w-sm overflow-y-auto border-amber-700">
+        <p className="text-xs font-semibold uppercase tracking-wide text-amber-400">🔔 {guesserUsername} ตอบแล้ว</p>
+        <h2 className="mt-1 text-2xl font-bold text-white">{guessText ? `"${guessText}"` : "ตอบด้วยเสียง"}</h2>
+        <p className="mt-2 text-sm text-slate-400">รอคนใบ้ทุกคนโหวตครบ แล้วตัดสินด้วยเสียงส่วนมาก หากเสมอให้ทายใหม่</p>
         <p className="mt-1 text-xs text-slate-500">
-          ยืนยันแล้ว {votesCorrectCount}/{votesNeeded} คน
+          โหวตแล้ว {votesCount}/{votesNeeded} คน · ถูก {votesCorrectCount} / ไม่ถูก {votesCount - votesCorrectCount}
         </p>
+        <p className="mt-2 break-words text-xs text-slate-400">รอ: {waitingNames.join(", ")}</p>
+        {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
         <div className="mt-6 flex flex-wrap justify-end gap-3">
-          <Button variant="secondary" onClick={onMarkWrong} isLoading={isMarkingWrong} disabled={isMarkingCorrect}>
-            ❌ ยังไม่ถูก
+          <Button variant="secondary" onClick={onMarkWrong} isLoading={isMarkingWrong} disabled={isMarkingCorrect || selfVote !== null}>
+            {selfVote === "wrong" ? "❌ โหวตแล้ว" : "❌ ยังไม่ถูก"}
           </Button>
           <Button
             variant="secondary"
             className="border border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50"
             onClick={onMarkCorrect}
             isLoading={isMarkingCorrect}
-            disabled={isMarkingWrong || selfVote === "correct"}
+            disabled={isMarkingWrong || selfVote !== null}
           >
             {selfVote === "correct" ? "✅ กดแล้ว รอคนอื่น..." : "✅ ถูกต้อง"}
           </Button>

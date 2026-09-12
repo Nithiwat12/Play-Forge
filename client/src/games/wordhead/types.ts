@@ -30,17 +30,15 @@ export interface WordHeadLogEntry {
   timestamp: number;
 }
 
-// A typed guess awaiting another player's ถูก/ผิด judgment - see
-// WORDHEAD_ACTIONS.MARK_CORRECT/MARK_WRONG. Visible to everyone (there's
-// nothing secret about a guess the up player already typed themselves).
+// A typed or spoken answer awaiting all other players. Its id binds votes to this attempt.
 export interface WordHeadPendingGuess {
+  id: string;
   text: string;
   submittedAt: number;
 }
 
-// userId -> their vote on the up player's CURRENT answer attempt. Winning
-// needs unanimous "correct" from everyone connected except the up player -
-// a single "wrong" vote fails the attempt immediately instead.
+// Each non-guesser votes once. Wait for all votes, then use a strict majority.
+// A tie rejects the attempt and lets the same player guess again.
 export type WordHeadGuessVotes = Record<string, "correct" | "wrong">;
 
 export interface WordHeadResult {
@@ -77,6 +75,7 @@ export interface WordHeadPrivateState {
 export const WORDHEAD_ACTIONS = {
   HINT: "wordhead:hint",
   GUESS: "wordhead:guess",
+  ANSWER: "wordhead:answer",
   PASS_TURN: "wordhead:passTurn",
   UPDATE_NOTES: "wordhead:updateNotes",
   // Pressed by anyone except the up player to judge an answer - either a

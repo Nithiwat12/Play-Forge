@@ -58,13 +58,9 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   private currentTurnUserId: string | null = null;
   private currentWord: string | null = null;
   private turnStartedAt: number | null = null;
-  // Set by a typed GUESS, cleared by MARK_CORRECT/MARK_WRONG (or a new
-  // typed guess replacing it, or the turn moving on) - see WordHeadState's
-  // note on why this is safe to show to the whole room.
+  // Set by GUESS or ANSWER; kept until all other players have voted.
   private pendingGuess: WordHeadPendingGuess | null = null;
-  // userId -> their vote on the CURRENT answer attempt. Requires unanimous
-  // "correct" from everyone in eligibleVoterIds() to win the turn - see
-  // handleMarkCorrect/handleMarkWrong.
+  // One vote per non-guesser for the current attempt.
   private guessVotes: Map<string, "correct" | "wrong"> = new Map();
 
   private hasGone: Set<string> = new Set();
@@ -148,11 +144,14 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       case WORDHEAD_ACTIONS.GUESS:
         this.handleGuess(userId, validateGuessPayload(payload).guessText);
         break;
+      case WORDHEAD_ACTIONS.ANSWER:
+        this.handleGuess(userId, "");
+        break;
       case WORDHEAD_ACTIONS.MARK_CORRECT:
-        this.handleMarkCorrect(userId);
+        this.handleGuessVote(userId, "correct", payload);
         break;
       case WORDHEAD_ACTIONS.MARK_WRONG:
-        this.handleMarkWrong(userId);
+        this.handleGuessVote(userId, "wrong", payload);
         break;
       case WORDHEAD_ACTIONS.PASS_TURN:
         this.handlePassTurn(userId);
@@ -192,12 +191,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     });
   }
 
-  // Logs the typed guess and puts it up for another player to judge -
-  // typing no longer auto-resolves correctness by matching text, since
-  // exact string matching can't tell a synonym or a typo from a real miss.
-  // See handleMarkCorrect/handleMarkWrong for how it actually gets
-  // resolved, and MARK_CORRECT's fallback for players who just say their
-  // guess out loud instead of typing it here.
+  // Submit a typed or spoken answer for a complete majority ballot.
   private handleGuess(userId: string, guessText: string): void {
     if (this.phase !== "TURN" || userId !== this.currentTurnUserId) {
       throw new GameActionError("ยังไม่ถึงตาคุณ");
@@ -206,12 +200,12 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       throw new GameActionError("ไม่พบคำของตานี้");
     }
 
+    if (this.pendingGuess) throw new GameActionError("รอทุกคนโหวตคำตอบนี้ให้ครบก่อน");
     const guesser = this.players.get(userId)!;
     const text = guessText.slice(0, WORDHEAD_MAX_TEXT_LENGTH);
 
-    // A fresh attempt needs fresh unanimous consent - old votes were about
-    // whatever was said/typed before this.
-    this.pendingGuess = { text, submittedAt: Date.now() };
+    // Each submitted answer opens a separate ballot for every other player.
+    this.pendingGuess = { id: randomUUID(), text, submittedAt: Date.now() };
     this.guessVotes.clear();
     this.appendLog({
       id: randomUUID(),
@@ -223,78 +217,44 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     });
   }
 
-  // Everyone currently connected except the up player has to independently
-  // press ตอบถูก before it counts as a win - one dissenting ตอบผิด fails
-  // the whole attempt immediately (see handleMarkWrong) rather than
-  // needing everyone to agree it's wrong too.
+  // All players except the guesser must vote, including players reconnecting.
   private eligibleVoterIds(): string[] {
-    return this.getPlayers()
-      .map((p) => p.userId)
-      .filter((id) => id !== this.currentTurnUserId && !this.disconnected.has(id));
+    return this.getPlayers().map((p) => p.userId).filter((id) => id !== this.currentTurnUserId);
   }
 
-  // Anyone except the up player can call this - either voting on a typed
-  // pendingGuess, or (if there isn't one) confirming an answer the up
-  // player just said out loud. Only resolves the turn once every eligible
-  // voter has voted "correct" - otherwise it just records this one vote
-  // and waits for the rest.
-  private handleMarkCorrect(judgeUserId: string): void {
-    if (this.phase !== "TURN" || !this.currentTurnUserId) {
-      throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
+  private handleGuessVote(judgeUserId: string, vote: "correct" | "wrong", payload: unknown): void {
+    if (this.phase !== "TURN" || !this.currentTurnUserId || !this.pendingGuess) {
+      throw new GameActionError("ยังไม่มีคำตอบให้โหวต");
     }
     if (judgeUserId === this.currentTurnUserId) {
       throw new GameActionError("คุณกดยืนยันคำตอบตัวเองไม่ได้");
     }
-
-    this.guessVotes.set(judgeUserId, "correct");
-
+    if (this.disconnected.has(judgeUserId)) throw new GameActionError("กรุณากลับเข้าห้องก่อนโหวต");
+    if (!payload || typeof payload !== "object" ||
+        (payload as { guessId?: unknown }).guessId !== this.pendingGuess.id) {
+      throw new GameActionError("คำตอบนี้เปลี่ยนไปแล้ว กรุณาโหวตคำตอบล่าสุด");
+    }
+    if (this.guessVotes.has(judgeUserId)) throw new GameActionError("คุณโหวตคำตอบนี้แล้ว");
+    this.guessVotes.set(judgeUserId, vote);
     const eligible = this.eligibleVoterIds();
-    const votedCorrect = eligible.filter((id) => this.guessVotes.get(id) === "correct");
-    if (eligible.length === 0 || votedCorrect.length < eligible.length) {
-      const judge = this.players.get(judgeUserId)!;
-      this.appendSystemLog(
-        `✅ ${judge.username} กดว่าถูก (${votedCorrect.length}/${eligible.length} คนแล้ว - ต้องกดครบทุกคนถึงจะชนะ)`
-      );
+    if (!eligible.every((id) => this.guessVotes.has(id))) {
+      this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
       return;
     }
 
+    const correct = eligible.filter((id) => this.guessVotes.get(id) === "correct").length;
+    const wrong = eligible.length - correct;
     const guesser = this.players.get(this.currentTurnUserId)!;
     const word = this.currentWord;
-    const guessedText = this.pendingGuess?.text;
     this.pendingGuess = null;
     this.guessVotes.clear();
-
-    const elapsedSeconds = this.finishTurn(this.currentTurnUserId, true);
-    this.appendSystemLog(
-      `ทุกคนยืนยันตรงกันว่า ${guesser.username} ตอบถูก${guessedText ? ` ("${guessedText}")` : ""}! คำคือ "${word}" (ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที)`
-    );
-    this.advanceTurn();
-  }
-
-  // A single ตอบผิด vote fails the whole attempt right away (winning needs
-  // everyone to agree it's correct, so one dissent is already enough to
-  // reject it) - clears every vote so the next attempt starts clean. Never
-  // ends the turn or costs anything beyond the time already spent - the
-  // stopwatch just keeps running.
-  private handleMarkWrong(judgeUserId: string): void {
-    if (this.phase !== "TURN" || !this.currentTurnUserId) {
-      throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
+    if (correct > wrong) {
+      const elapsedSeconds = this.finishTurn(this.currentTurnUserId, true);
+      this.appendSystemLog(`โหวตครบทุกคน: ถูก ${correct} / ไม่ถูก ${wrong} — ${guesser.username} ตอบถูก! คำคือ "${word}" (ใช้เวลา ${elapsedSeconds.toFixed(1)} วินาที)`);
+      this.advanceTurn();
+    } else {
+      this.appendSystemLog(`โหวตครบทุกคน: ถูก ${correct} / ไม่ถูก ${wrong} — ${correct === wrong ? "คะแนนเสมอ" : "เสียงส่วนมากเห็นว่ายังไม่ถูก"} ${guesser.username} ทายใหม่ได้เลย!`);
     }
-    if (judgeUserId === this.currentTurnUserId) {
-      throw new GameActionError("คุณกดยืนยันคำตอบตัวเองไม่ได้");
-    }
-
-    const judge = this.players.get(judgeUserId)!;
-    const guesser = this.players.get(this.currentTurnUserId)!;
-    const guessedText = this.pendingGuess?.text;
-    this.pendingGuess = null;
-    this.guessVotes.clear();
-
-    this.appendSystemLog(
-      guessedText
-        ? `${judge.username} กดว่า "${guessedText}" ยังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
-        : `${judge.username} กดว่ายังไม่ถูก - ${guesser.username} ทายต่อได้เลย!`
-    );
   }
 
   // Voluntary give-up: locks in however long they've spent so far as their
@@ -305,6 +265,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     if (this.phase !== "TURN" || userId !== this.currentTurnUserId) {
       throw new GameActionError("ยังไม่ถึงตาคุณ");
     }
+    if (this.pendingGuess) throw new GameActionError("รอทุกคนโหวตคำตอบนี้ให้ครบก่อน");
     const passer = this.players.get(userId)!;
     const word = this.currentWord;
     this.pendingGuess = null;

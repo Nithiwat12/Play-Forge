@@ -76,7 +76,14 @@ export function PlayPage() {
 
     function handleGameState(payload: { roomId: string; public: unknown; private: unknown }) {
       if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      const previousPhase = (useGameStore.getState().publicState as { phase?: string } | null)?.phase;
       setState(payload.public, payload.private);
+      if (previousPhase === "FINISHED" && (payload.public as { phase?: string })?.phase !== "FINISHED") {
+        setContinuePoll(null);
+        api.get<{ scoreboard: Scoreboard }>(`/rooms/${roomCode}/scoreboard?scope=current`)
+          .then((response) => { if (!cancelled) setScoreboard(response.data.scoreboard); })
+          .catch(() => {});
+      }
       // Any fresh state push means the next round has actually started (the
       // only time game:state fires during the "starting next round in X
       // seconds..." window is startRoundForRoom's own broadcast right as it
@@ -143,11 +150,8 @@ export function PlayPage() {
       if (payload.willContinue && payload.nextRoundAt != null) {
         setContinueResolution({ nextRoundAt: payload.nextRoundAt });
       } else {
-        // Majority (or a tie, or nobody answering in time) said not to
-        // continue - everyone heads back to the lobby right away.
+        // Keep the results visible until this player explicitly leaves.
         setContinueResolution(null);
-        if (useRoomStore.getState().room?.game.slug === "spyfall") clear();
-        navigate(`/lobby/${roomCode}`, { replace: true });
       }
     }
 
@@ -188,6 +192,7 @@ export function PlayPage() {
           return;
         }
         if (response.room.status === "WAITING") {
+          if ((useGameStore.getState().publicState as { phase?: string } | null)?.phase === "FINISHED") return;
           navigate(`/lobby/${response.room.roomCode}`, { replace: true });
           return;
         }
@@ -237,7 +242,10 @@ export function PlayPage() {
 
   const handleReplay = useCallback(async () => {
     try {
-      const response = await emitWithAck("game:start", { roomId });
+      const opened = await emitWithAck("game:requestContinue", { roomId });
+      if (!opened.ok) return { ok: false, error: opened.error };
+      const response = await emitWithAck("game:continueVote", { roomId, wantsContinue: true });
+      if (response.ok) setContinuePoll((prev) => prev ? { ...prev, myVote: true } : prev);
       return response.ok ? { ok: true } : { ok: false, error: response.error };
     } catch (err) { return { ok: false, error: extractErrorMessage(err) }; }
   }, [roomId]);
@@ -269,6 +277,8 @@ export function PlayPage() {
       if (!response.ok) {
         setContinuePoll((prev) => (prev ? { ...prev, myVote: null } : prev));
         setContinueError(response.error);
+      } else if (!wantsContinue) {
+        navigate(`/lobby/${roomCode}`);
       }
     } catch (err) {
       setContinuePoll((prev) => (prev ? { ...prev, myVote: null } : prev));
@@ -385,7 +395,7 @@ export function PlayPage() {
         resolution={continueResolution}
         error={continueError}
         isSubmittingVote={isSubmittingContinueVote}
-        dismissAfterVote={room.game.slug === "spyfall"}
+        dismissAfterVote={room.game.slug === "spyfall" || room.game.slug === "wordhead"}
         isSkipping={isSkippingContinueDelay}
         onVote={(wantsContinue) => void handleContinueVote(wantsContinue)}
         onSkip={() => void handleSkipContinueDelay()}

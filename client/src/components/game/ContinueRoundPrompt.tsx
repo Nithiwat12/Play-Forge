@@ -67,21 +67,24 @@ export function ContinueRoundPrompt({
   onDismissResolution,
   onDismissError,
 }: ContinueRoundPromptProps) {
+  const [dismissedDeadline, setDismissedDeadline] = useState<number | null>(null);
   const pollSecondsLeft = useCountdownSeconds(poll?.deadline ?? null);
   const nextRoundSecondsLeft = useCountdownSeconds(resolution?.nextRoundAt ?? null);
 
   if (poll) {
     const hasVoted = poll.myVote !== null;
-    if (dismissAfterVote && hasVoted && !isSubmittingVote) return null;
+    if (dismissedDeadline === poll.deadline || (dismissAfterVote && hasVoted && !isSubmittingVote)) return null;
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-        <Card className="w-full max-w-sm">
+        <Card className="relative w-full max-w-sm">
+          <button type="button" aria-label="ปิดป๊อปอัปและดูผลต่อ" onClick={() => setDismissedDeadline(poll.deadline)}
+            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg text-xl text-slate-400 hover:bg-slate-800 hover:text-white">×</button>
           <p className="text-xs font-semibold uppercase tracking-wide text-brand-400">
             จบรอบแล้ว
           </p>
           <h2 className="mt-1 text-lg font-semibold text-white">เล่นรอบต่อไปกันไหม?</h2>
           <p className="mt-2 text-sm text-slate-400">
-            เสียงส่วนมากเป็นตัวตัดสิน - ถ้าไม่เลือกภายใน {pollSecondsLeft} วินาที จะถือว่ากลับไปที่ล็อบบี้
+            เสียงส่วนมากเป็นตัวตัดสิน เหลือ {pollSecondsLeft} วินาที — ปิดหน้าต่างนี้เพื่อดูผลต่อได้ หากหมดเวลาจะยังอยู่หน้านี้
           </p>
           <p className="mt-2 text-xs text-slate-500">
             ต่อ {poll.votesFor} · ไม่ต่อ {poll.votesAgainst} จาก {poll.totalPlayers} คน

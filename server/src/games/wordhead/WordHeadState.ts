@@ -40,24 +40,15 @@ export interface WordHeadLogEntry {
   timestamp: number;
 }
 
-// A typed guess waiting for someone other than the guesser to judge it -
-// see WordHeadGame's MARK_CORRECT/MARK_WRONG handlers. Cleared as soon as
-// it's judged (or a new typed guess replaces it, or the turn moves on).
-// Everyone in the room can see this (there's nothing secret about a guess
-// the up player already typed themselves) so the client can pop up a
-// judging prompt for every other player the moment it appears.
+// A typed or spoken answer awaiting all other players. Its id binds votes to this attempt.
 export interface WordHeadPendingGuess {
+  id: string;
   text: string;
   submittedAt: number;
 }
 
-// One entry per player who has cast a ถูก/ผิด vote on the up player's
-// CURRENT answer attempt (whichever is more recent: a typed pendingGuess,
-// or just something they said out loud - both use the same tally). Voting
-// requires unanimous "correct" from everyone eligible (see
-// WordHeadGame.eligibleVoterIds) to actually win the turn; a single
-// "wrong" vote fails the attempt immediately and clears this map, rather
-// than waiting for everyone else to also vote wrong.
+// Each non-guesser votes once. Wait for all votes, then use a strict majority.
+// A tie rejects the attempt and lets the same player guess again.
 export type WordHeadGuessVotes = Record<string, "correct" | "wrong">;
 
 export interface WordHeadResult {
@@ -86,15 +77,12 @@ export interface WordHeadPublicState {
   log: WordHeadLogEntry[];
   wordCategory: string | null;
   result: WordHeadResult | null;
-  // A typed guess currently awaiting another player's ถูก/ผิด judgment -
+  // A submitted answer currently awaiting every other player's judgment -
   // null when nobody's up player has an unjudged typed guess out. The
   // client uses this to pop up a judging prompt for everyone except the
   // guesser themselves.
   pendingGuess: WordHeadPendingGuess | null;
-  // Votes cast so far on the current answer attempt - see
-  // WordHeadGuessVotes. Reset (to {}) at the start of every turn, whenever
-  // a fresh typed guess replaces pendingGuess, and immediately after any
-  // single "wrong" vote or after unanimous "correct" resolves the turn.
+  // Votes for this attempt; cleared only after all votes resolve or the game ends.
   guessVotes: WordHeadGuessVotes;
 }
 
@@ -114,6 +102,7 @@ export interface WordHeadPrivateState {
 export const WORDHEAD_ACTIONS = {
   HINT: "wordhead:hint",
   GUESS: "wordhead:guess",
+  ANSWER: "wordhead:answer",
   PASS_TURN: "wordhead:passTurn",
   UPDATE_NOTES: "wordhead:updateNotes",
   // Pressed by anyone EXCEPT the current up player to judge whether the up

@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "../../components/common/Card";
 import { Button } from "../../components/common/Button";
+import { ConfirmModal } from "../../components/common/ConfirmModal";
 import { Input } from "../../components/common/Input";
 import { PlayerBoard } from "./PlayerBoard";
 import { HintPanel } from "./HintPanel";
@@ -31,9 +32,21 @@ export function WordHeadGame({
   privateState,
   selfUserId,
   onAction,
+  onReplay,
   scoreboard,
 }: WordHeadGameProps) {
   const navigate = useNavigate();
+  const [isReplaying, setIsReplaying] = useState(false);
+  async function handlePlayAgain() {
+    if (isReplaying) return;
+    setIsReplaying(true);
+    setActionError(null);
+    try {
+      const response = await onReplay();
+      if (!response.ok) setActionError(response.error ?? "เล่นต่อไม่สำเร็จ");
+    } finally { setIsReplaying(false); }
+  }
+  const [showPassConfirm, setShowPassConfirm] = useState(false);
   const [guessText, setGuessText] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
@@ -58,17 +71,22 @@ export function WordHeadGame({
     ? usernameByUserId.get(publicState.currentTurnUserId) ?? "ไม่ทราบชื่อ"
     : null;
 
-  // Winning an attempt needs EVERY currently-connected player other than
-  // the up player to press ตอบถูก - mirrors WordHeadGame.eligibleVoterIds
-  // on the server exactly, so the tally shown here always matches what the
-  // server is actually waiting for.
+  // Wait for the whole roster except the guesser, matching the server.
   const eligibleVoterIds = useMemo(
-    () => publicState.players.filter((p) => p.connected && p.userId !== publicState.currentTurnUserId).map((p) => p.userId),
+    () => publicState.players.filter((p) => p.userId !== publicState.currentTurnUserId).map((p) => p.userId),
     [publicState.players, publicState.currentTurnUserId]
   );
   const votesNeeded = eligibleVoterIds.length;
   const votesCorrectCount = eligibleVoterIds.filter((id) => publicState.guessVotes[id] === "correct").length;
+  const votesCount = eligibleVoterIds.filter((id) => publicState.guessVotes[id] !== undefined).length;
+  const waitingNames = publicState.players.filter((p) => eligibleVoterIds.includes(p.userId) && !publicState.guessVotes[p.userId]).map((p) => `${p.username}${p.connected ? "" : " (ออฟไลน์)"}`);
   const selfVote = selfUserId ? publicState.guessVotes[selfUserId] : undefined;
+
+  useEffect(() => {
+    setShowPassConfirm(false);
+    setGuessText("");
+    setActionError(null);
+  }, [publicState.currentTurnUserId, publicState.phase]);
 
   const categoryLabel = getCategoryLabel(publicState.wordCategory);
   const currentRoundNumber = scoreboard
@@ -118,7 +136,7 @@ export function WordHeadGame({
   );
 
   async function handleGuess() {
-    if (!guessText.trim()) return;
+    if (!guessText.trim() || publicState.pendingGuess || isSubmittingAction) return;
     setIsSubmittingAction(true);
     try {
       await runAction(WORDHEAD_ACTIONS.GUESS, { guessText }, () => setGuessText(""));
@@ -127,11 +145,21 @@ export function WordHeadGame({
     }
   }
 
-  async function handlePass() {
-    if (!window.confirm("ยอมแพ้ตานี้เลยเหรอ? เวลาที่ใช้ไปแล้วจะถูกบันทึกไว้ และย้อนกลับไม่ได้")) return;
+  async function handleAnswer() {
+    if (publicState.pendingGuess || isSubmittingAction) return;
     setIsSubmittingAction(true);
     try {
-      await runAction(WORDHEAD_ACTIONS.PASS_TURN, {});
+      await runAction(WORDHEAD_ACTIONS.ANSWER, {});
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
+
+  async function handlePass() {
+    if (isSubmittingAction || publicState.pendingGuess) return;
+    setIsSubmittingAction(true);
+    try {
+      await runAction(WORDHEAD_ACTIONS.PASS_TURN, {}, () => setShowPassConfirm(false));
     } finally {
       setIsSubmittingAction(false);
     }
@@ -147,18 +175,20 @@ export function WordHeadGame({
   }
 
   async function handleMarkCorrect() {
+    if (!publicState.pendingGuess || selfVote || isMarkingCorrect || isMarkingWrong) return;
     setIsMarkingCorrect(true);
     try {
-      await runAction(WORDHEAD_ACTIONS.MARK_CORRECT, {});
+      await runAction(WORDHEAD_ACTIONS.MARK_CORRECT, { guessId: publicState.pendingGuess.id });
     } finally {
       setIsMarkingCorrect(false);
     }
   }
 
   async function handleMarkWrong() {
+    if (!publicState.pendingGuess || selfVote || isMarkingCorrect || isMarkingWrong) return;
     setIsMarkingWrong(true);
     try {
-      await runAction(WORDHEAD_ACTIONS.MARK_WRONG, {});
+      await runAction(WORDHEAD_ACTIONS.MARK_WRONG, { guessId: publicState.pendingGuess.id });
     } finally {
       setIsMarkingWrong(false);
     }
@@ -204,11 +234,12 @@ export function WordHeadGame({
             <div className="mt-4 flex flex-wrap items-center gap-3">
               {matchComplete ? (
                 <p className="flex items-center gap-1 text-sm font-medium text-amber-400">
-                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - รอผลโหวตว่าจะเล่นแมตช์ใหม่ต่อหรือกลับล็อบบี้...
+                  🏆 จบแมตช์แล้ว! ดูตารางคะแนนรวมด้านล่าง - เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม
                 </p>
               ) : (
-                <p className="flex items-center text-xs text-slate-500">รอผลโหวตว่าจะเล่นต่อหรือกลับล็อบบี้...</p>
+                <p className="flex items-center text-xs text-slate-500">เลือกเล่นต่อหรือกลับล็อบบี้ได้เมื่อพร้อม</p>
               )}
+              <Button onClick={() => { void handlePlayAgain(); }} isLoading={isReplaying}>เล่นต่อ</Button>
               <Button variant="secondary" onClick={handleBackToLobbyOrHome}>
                 กลับไปที่ล็อบบี้
               </Button>
@@ -227,10 +258,12 @@ export function WordHeadGame({
             <h2 className="text-sm font-semibold text-slate-300">ตาของคุณ - ทายคำของตัวเอง</h2>
             <p className="mt-1 text-xs text-slate-500">
               คนอื่นในห้องเห็นคำของคุณและกำลังช่วยใบ้อยู่ - ฟังคำใบ้แล้วตอบได้เลย จะพูดออกเสียงหรือพิมพ์ก็ได้
-              พิมพ์แล้วรอคนอื่นกดยืนยันว่าถูกไหม
+              พิมพ์แล้วกด “ทายคำ” หรือพูดแล้วกด “ตอบแล้ว” รอคนใบ้ทุกคนโหวตครบ ตัดสินด้วยเสียงส่วนมาก
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Input
+                disabled={Boolean(publicState.pendingGuess) || isSubmittingAction}
+                maxLength={200}
                 value={guessText}
                 onChange={(e) => setGuessText(e.target.value)}
                 placeholder="พิมพ์คำที่คุณคิดว่าใช่..."
@@ -239,19 +272,23 @@ export function WordHeadGame({
                   if (e.key === "Enter") void handleGuess();
                 }}
               />
-              <Button variant="danger" onClick={handleGuess} disabled={!guessText.trim()} isLoading={isSubmittingAction}>
+              <Button variant="danger" onClick={handleGuess} disabled={!guessText.trim() || Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
                 ทายคำ
               </Button>
             </div>
-            <div className="mt-4">
-              <Button variant="ghost" onClick={handlePass} isLoading={isSubmittingAction}>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button onClick={handleAnswer} disabled={Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
+                ตอบแล้ว
+              </Button>
+              <Button variant="ghost" onClick={() => setShowPassConfirm(true)} disabled={Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
                 ยอมแพ้ / ข้ามตานี้
               </Button>
             </div>
-            {votesCorrectCount > 0 && (
-              <p className="mt-3 text-xs text-emerald-400">
-                ✅ {votesCorrectCount}/{votesNeeded} คนยืนยันว่าคุณตอบถูกแล้ว - รอให้ครบทุกคน
-              </p>
+            {publicState.pendingGuess && (
+              <div className="mt-3 text-sm text-slate-300" role="status">
+                <p>รอคนใบ้โหวตครบ: {votesCount}/{votesNeeded} คน · ถูก {votesCorrectCount} / ไม่ถูก {votesCount - votesCorrectCount}</p>
+                <p className="mt-1 text-slate-400">รอ: {waitingNames.join(", ")}</p>
+              </div>
             )}
             {actionError && <p className="mt-3 text-sm text-red-400">{actionError}</p>}
           </Card>
@@ -282,6 +319,9 @@ export function WordHeadGame({
               isMarkingWrong={isMarkingWrong}
               onMarkCorrect={handleMarkCorrect}
               onMarkWrong={handleMarkWrong}
+              votesCount={votesCount}
+              waitingNames={waitingNames}
+              error={actionError}
               votesCorrectCount={votesCorrectCount}
               votesNeeded={votesNeeded}
               selfVote={selfVote ?? null}
@@ -305,7 +345,7 @@ export function WordHeadGame({
               if (entry.type === "guess") {
                 return (
                   <div key={entry.id} className="rounded-lg bg-slate-900/70 px-3 py-2 text-sm text-slate-300">
-                    <span className="font-medium text-slate-200">{entry.username}</span> ทายว่า "{entry.text}"
+                    <span className="font-medium text-slate-200">{entry.username}</span> {entry.text ? `ทายว่า "${entry.text}"` : "ตอบด้วยเสียง"}
                     <span className="italic text-slate-500"> - รอเพื่อนกดยืนยัน</span>
                   </div>
                 );
@@ -336,6 +376,16 @@ export function WordHeadGame({
           </div>
         </Card>
 
+        {showPassConfirm && isMyTurn && !publicState.pendingGuess && (
+          <ConfirmModal
+            title="ยอมแพ้ / ข้ามตานี้?"
+            message="เวลาที่ใช้ไปแล้วจะถูกบันทึกไว้ และย้อนกลับไม่ได้"
+            confirmLabel={isSubmittingAction ? "กำลังบันทึก..." : "ยืนยันข้ามตา"}
+            cancelLabel="เล่นต่อ"
+            onConfirm={() => { void handlePass(); }}
+            onCancel={() => { if (!isSubmittingAction) setShowPassConfirm(false); }}
+          />
+        )}
         <NotesPad notes={privateState.notes} onSave={handleSaveNotes} />
       </div>
     </div>

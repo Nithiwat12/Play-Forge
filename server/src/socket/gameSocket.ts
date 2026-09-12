@@ -177,10 +177,6 @@ async function finalizeGame(io: AppServer, roomId: string) {
     io.to(roomId).emit("room:update", { room: withPresence(room) });
   }
 
-  if (resetSpyfall) {
-    io.to(roomId).emit("game:continueResolved", { roomId, willContinue: false, nextRoundAt: null });
-    return;
-  }
 
   // Always offer everyone the chance to keep going in the SAME room,
   // whether or not the configured round count (if any) has been reached -
@@ -207,6 +203,7 @@ async function openContinuePoll(io: AppServer, roomId: string, lastCategory: str
   const room = await RoomService.getRoomById(roomId).catch(() => null);
   // Nobody left to ask (or the room vanished) - nothing to poll for.
   if (!room || room.players.length === 0) return;
+  if (continuePolls.has(roomId) || GameManager.isGameActive(roomId) || room.status !== "WAITING") return;
 
   const timeout = setTimeout(() => {
     resolveContinuePoll(io, roomId).catch((err) => console.error("Failed to resolve continue poll:", err));
@@ -300,6 +297,25 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
       ack({ ok: true });
     } catch (err) {
       ack({ ok: false, error: err instanceof Error ? err.message : "เริ่มเกมไม่สำเร็จ" });
+    }
+  });
+
+  socket.on("game:requestContinue", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
+    try {
+      if (!socket.rooms.has(roomId)) throw new Error("กรุณากลับเข้าห้องก่อนทำรายการ");
+      const room = await RoomService.getRoomById(roomId);
+      if (!room.players.some((p) => p.userId === userId)) throw new Error("คุณไม่ได้อยู่ในห้องนี้");
+      if (room.game.slug !== "spyfall" && room.game.slug !== "wordhead") throw new Error("เกมนี้ไม่รองรับการเล่นต่อจากหน้านี้");
+      if (room.status !== "WAITING" || GameManager.isGameActive(roomId)) throw new Error("เกมกำลังเล่นอยู่");
+      if (pendingRoundStarts.has(roomId) || pendingCategoryPicks.has(roomId)) throw new Error("กำลังเตรียมรอบถัดไป กรุณารอสักครู่");
+      if (!continuePolls.has(roomId)) {
+        const history = await ScoreboardService.getScoreboardByRoomCode(room.roomCode);
+        if (history.roundsPlayed === 0) throw new Error("กรุณาเริ่มเกมแรกจากล็อบบี้");
+        await openContinuePoll(io, roomId, (room.settings as RoomSettings | null)?.category ?? null);
+      }
+      ack({ ok: true });
+    } catch (err) {
+      ack({ ok: false, error: err instanceof Error ? err.message : "เปิดโหวตไม่สำเร็จ" });
     }
   });
 
