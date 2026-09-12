@@ -3,6 +3,5 @@
 // nothing else in the platform needs to change.
 import "./spyfall";
 import "./wordhead";
-import "./island_betrayal";
 
 export {};

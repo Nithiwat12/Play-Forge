@@ -5,8 +5,6 @@ import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Spinner } from "../components/common/Spinner";
 import { ScoreboardTable } from "../components/game/ScoreboardTable";
-import { TruthReveal } from "../games/island_betrayal/TruthReveal";
-import type { IslandResult } from "../games/island_betrayal/types";
 import { WordHeadTimeTable } from "../games/wordhead/WordHeadTimeTable";
 import type { WordHeadTimeEntry } from "../games/wordhead/WordHeadTimeTable";
 import { api, extractErrorMessage } from "../services/api";
@@ -132,8 +130,6 @@ export function GameResult() {
           <Card>
             <Spinner className="mt-2" />
           </Card>
-        ) : entry.gameSlug === "island_betrayal" ? (
-          <Card><TruthReveal result={entry.resultData as unknown as IslandResult} /><Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>กลับไปที่ประวัติเกม</Button></Card>
         ) : isMultiRound ? (
           <>
             <Card>

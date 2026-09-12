@@ -15,8 +15,7 @@
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/run-tests.cjs && npm run test:island",
-    "test:island": "node --test tests/island.test.cjs"
+    "test": "node tests/run-tests.cjs"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

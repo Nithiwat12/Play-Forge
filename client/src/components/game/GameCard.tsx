@@ -8,7 +8,6 @@ import { HowToPlayModal } from "./HowToPlayModal";
 // Per-game library-card icon, keyed by slug - a future game just adds its
 // own entry here; anything unrecognized falls back to the generic mask.
 const GAME_ICONS: Record<string, string> = {
-  island_betrayal: "🏝️",
   spyfall: "🕵️",
   wordhead: "🧠",
 };

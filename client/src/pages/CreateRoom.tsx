@@ -1,4 +1,3 @@
-import { IslandRoomSettings, islandDefaults } from "../games/island_betrayal/IslandRoomSettings";
 import { RoleConfiguration } from "../components/roles/RoleConfiguration";
 import type { RoleConfig, RoleDefinition } from "../components/roles/types";
 import { useEffect, useState } from "react";
@@ -28,7 +27,6 @@ export function CreateRoom() {
 
   const [roleConfig, setRoleConfig] = useState<RoleConfig>({});
   const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinition[]>([]);
-  const [islandSettings, setIslandSettings] = useState(islandDefaults);
   useEffect(() => { let cancelled = false; api.get<{game: {roleDefinitions?: RoleDefinition[]}}>(`/games/${gameSlug}`).then(r => { if (!cancelled) setRoleDefinitions(r.data.game.roleDefinitions ?? []); }).catch(() => {}); return () => { cancelled = true; }; }, [gameSlug]);
   const [roomName, setRoomName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(8);
@@ -38,7 +36,6 @@ export function CreateRoom() {
   const [limitRounds, setLimitRounds] = useState(false);
   const [numberOfRounds, setNumberOfRounds] = useState(3);
   const [categoryMode, setCategoryMode] = useState<CategoryMode>("RANDOM");
-  const isIsland = gameSlug === "island_betrayal";
   const isWordHead = gameSlug === "wordhead";
   const isSpyfall = gameSlug === "spyfall";
   const CATEGORIES = isWordHead ? WORDHEAD_CATEGORIES : SPYFALL_CATEGORIES;
@@ -58,7 +55,7 @@ export function CreateRoom() {
         maxPlayers,
         usePassword,
         password: usePassword ? password : undefined,
-        settings: isIsland ? { roleConfig, island: islandSettings } : {
+        settings: {
           ...(roleDefinitions.length ? { roleConfig } : {}),
           ...(discussionMinutes ? { discussionMinutes } : {}),
           ...(limitRounds ? { numberOfRounds } : {}),
@@ -105,13 +102,12 @@ export function CreateRoom() {
               type="number"
               label="จำนวนผู้เล่นสูงสุด"
               required
-              min={isIsland ? 4 : 3}
-              max={isIsland ? 15 : 8}
+              min={3}
+              max={8}
               value={maxPlayers}
               onChange={(e) => setMaxPlayers(Number(e.target.value))}
             />
             <RoleConfiguration definitions={roleDefinitions} value={roleConfig} onChange={setRoleConfig} playerCount={maxPlayers} />
-            {isIsland && <IslandRoomSettings value={islandSettings} onChange={setIslandSettings} />}
             {isSpyfall && (
               <Input
                 id="discussionMinutes"
@@ -125,7 +121,6 @@ export function CreateRoom() {
               />
             )}
 
-            {!isIsland && <>
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input
                 type="checkbox"
@@ -189,8 +184,6 @@ export function CreateRoom() {
               )}
             </div>
 
-            </>}
-            {isIsland && <p className="rounded-lg bg-slate-900 p-4 text-sm text-slate-300">4–15 คน · กลางวันและกลางคืนยาวเท่ากัน · เกาะใหญ่ มอนสเตอร์ Spy และภารกิจ จบแล้วบันทึกแยกแต่ละเกม</p>}
 
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input
