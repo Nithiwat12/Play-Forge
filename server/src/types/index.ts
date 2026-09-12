@@ -52,9 +52,9 @@ export interface RoomSettings {
   // every round draws from every location, no restriction. "FIXED" =
   // every round of this match is restricted to `category` (chosen once at
   // room creation). "PER_ROUND" = restricted to `category` too, but the
-  // host re-picks (or repeats) it before each round after the first - see
-  // gameSocket's pendingCategoryPicks, which is what actually updates
-  // `category` here between rounds via RoomService.setNextRoundCategory.
+  // host re-picks (or repeats) it before EVERY round, including the first -
+  // see gameSocket's pendingCategoryPicks, which is what actually updates
+  // `category` here via RoomService.setNextRoundCategory.
   categoryMode?: "RANDOM" | "FIXED" | "PER_ROUND";
   category?: string;
 }

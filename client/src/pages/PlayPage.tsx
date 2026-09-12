@@ -409,6 +409,7 @@ export function PlayPage() {
         error={categoryError}
         onSelect={(category) => void handleSelectCategory(category)}
         onDismissError={() => setCategoryError(null)}
+        context="roundEnd"
       />
     </div>
   );

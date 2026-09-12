@@ -58,14 +58,20 @@ const pendingRoundStarts = new Map<string, PendingRoundStart>();
 
 interface PendingCategoryPick {
   lastCategory: string | null;
+  // Which flow opened this pick, so "game:selectCategory" knows what to do
+  // once it resolves: "continue" came from a majority "yes" on the
+  // continue-vote poll and should fall into the usual NEXT_ROUND_DELAY_MS
+  // scoreboard-viewing countdown (see resolveContinuePoll); "start" came
+  // from the host pressing "start game" in the lobby (round 1 of a match,
+  // or a fresh match in an already-used room) and should launch the round
+  // immediately - nobody's mid-scoreboard-view yet, there's nothing to
+  // delay for.
+  origin: "start" | "continue";
 }
 // roomId -> a "PER_ROUND" category match waiting on the host to choose (or
-// repeat) the next round's category, opened right after a majority "yes"
-// on the continue-vote poll instead of going straight into the
-// NEXT_ROUND_DELAY_MS countdown (see resolveContinuePoll and the
-// "game:selectCategory" handler, which is what actually schedules that
-// countdown once the pick comes in). Entirely opaque here - this layer
-// never looks at what a "category" is, only whether one is pending.
+// repeat) a round's category before that round can actually begin.
+// Entirely opaque here - this layer never looks at what a "category" is,
+// only whether one is pending.
 const pendingCategoryPicks = new Map<string, PendingCategoryPick>();
 
 /**
@@ -252,7 +258,7 @@ async function resolveContinuePoll(io: AppServer, roomId: string, forcedResult?:
   // as before - straight into the scoreboard-viewing countdown.
   const room = await RoomService.getRoomById(roomId).catch(() => null);
   if ((room?.settings as RoomSettings | null)?.categoryMode === "PER_ROUND") {
-    pendingCategoryPicks.set(roomId, { lastCategory: poll.lastCategory });
+    pendingCategoryPicks.set(roomId, { lastCategory: poll.lastCategory, origin: "continue" });
     io.to(roomId).emit("game:categoryPending", { roomId, lastCategory: poll.lastCategory });
     return;
   }
@@ -315,6 +321,23 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
   socket.on("game:start", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
     try {
       const room = await RoomService.assertCanStart(userId, roomId);
+
+      // A "PER_ROUND" category match needs the host's pick before ANY
+      // round begins, not just round 2+ - reuse the exact same pending-pick
+      // popup the continue-vote flow already shows between rounds (see
+      // CategoryPickerPrompt), just opened from the lobby's "start game"
+      // button instead. `settings.category` still carries whatever this
+      // room's last completed match last used (if any), so the host can
+      // pick "same as last time" here too.
+      if (pendingCategoryPicks.has(roomId)) { ack({ ok: true }); return; } // already waiting on a pick
+      if ((room.settings as RoomSettings | null)?.categoryMode === "PER_ROUND") {
+        const lastCategory = (room.settings as RoomSettings | null)?.category ?? null;
+        pendingCategoryPicks.set(roomId, { lastCategory, origin: "start" });
+        io.to(roomId).emit("game:categoryPending", { roomId, lastCategory });
+        ack({ ok: true });
+        return;
+      }
+
       await startRoundForRoom(io, room);
       ack({ ok: true });
     } catch (err) {
@@ -388,14 +411,17 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
   // pendingCategoryPicks) with either a freshly chosen category or the same
   // one repeated from `lastCategory` - the client passes whichever the host
   // did as one plain string either way, this handler doesn't distinguish.
-  // Only once this resolves does the usual scoreboard-viewing countdown to
-  // the next round actually start.
+  // What happens next depends on which flow opened the pick (see
+  // PendingCategoryPick.origin): a "continue" pick (between rounds) falls
+  // into the usual scoreboard-viewing countdown; a "start" pick (round 1,
+  // or a fresh match) launches the round immediately.
   socket.on(
     "game:selectCategory",
     async ({ roomId, category }: { roomId: string; category: string }, ack: Ack = noopAck) => {
       try {
         if (!socket.rooms.has(roomId)) throw new Error("กรุณากลับเข้าห้องก่อนทำรายการ");
-        if (!pendingCategoryPicks.has(roomId)) throw new Error("ไม่มีการรอเลือกหมวดหมู่ในขณะนี้");
+        const pending = pendingCategoryPicks.get(roomId);
+        if (!pending) throw new Error("ไม่มีการรอเลือกหมวดหมู่ในขณะนี้");
         if (typeof category !== "string" || !category.trim()) throw new Error("กรุณาเลือกหมวดหมู่");
 
         const room = await RoomService.getRoomById(roomId);
@@ -403,8 +429,28 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
 
         await RoomService.setNextRoundCategory(roomId, category.trim());
         pendingCategoryPicks.delete(roomId);
-        scheduleNextRoundStart(io, roomId);
-        ack({ ok: true });
+
+        if (pending.origin === "continue") {
+          scheduleNextRoundStart(io, roomId);
+          ack({ ok: true });
+          return;
+        }
+
+        // origin === "start" - some time has passed since the host pressed
+        // "start game" (however long they took to pick), so re-validate
+        // from scratch the same way the continue-vote system's own
+        // auto-start does, and tell EVERYONE (not just the host) if it
+        // turns out the room can no longer start - they've been sitting on
+        // a "waiting for host" popup this whole time with no other signal.
+        try {
+          const startableRoom = await RoomService.assertRoomCanStartRound(roomId);
+          await startRoundForRoom(io, startableRoom);
+          ack({ ok: true });
+        } catch (startErr) {
+          const message = startErr instanceof Error ? startErr.message : "เริ่มเกมไม่สำเร็จ";
+          io.to(roomId).emit("game:categoryFailed", { roomId, error: message });
+          ack({ ok: false, error: message });
+        }
       } catch (err) {
         ack({ ok: false, error: err instanceof Error ? err.message : "เลือกหมวดหมู่ไม่สำเร็จ" });
       }

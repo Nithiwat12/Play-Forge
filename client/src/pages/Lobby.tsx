@@ -8,6 +8,8 @@ import { ConfirmModal } from "../components/common/ConfirmModal";
 import { RoomCodeBadge } from "../components/room/RoomCodeBadge";
 import { PlayerListItem } from "../components/room/PlayerListItem";
 import { ScoreboardTable } from "../components/game/ScoreboardTable";
+import { CategoryPickerPrompt } from "../games/spyfall/CategoryPickerPrompt";
+import type { CategoryPendingInfo } from "../games/spyfall/CategoryPickerPrompt";
 import { subscribeToRoom } from "../services/roomConnection";
 import { connectSocket, emitWithAck } from "../services/socket";
 import { useRoomStore } from "../stores/roomStore";
@@ -28,6 +30,14 @@ export function Lobby() {
   const [kickTarget, setKickTarget] = useState<{ userId: string; username: string } | null>(null);
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
 
+  // A "PER_ROUND" category-mode room's extra step after pressing "start
+  // game" - the host must pick (or repeat) this round's category before the
+  // round actually begins; see CategoryPickerPrompt. Null for every other
+  // mode, and for a room where nobody has pressed "start" yet.
+  const [categoryPending, setCategoryPending] = useState<CategoryPendingInfo | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [isSelectingCategory, setIsSelectingCategory] = useState(false);
+
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -36,6 +46,8 @@ export function Lobby() {
     setError(null);
     clearRoom();
     setScoreboard(null);
+    setCategoryPending(null);
+    setCategoryError(null);
     const socket = connectSocket();
     let cancelled = false;
 
@@ -58,7 +70,29 @@ export function Lobby() {
     function handleGameStart({ room: updatedRoom }: { room: Room }) {
       if (updatedRoom.roomCode !== roomCode) return;
       setRoom(updatedRoom);
+      setCategoryPending(null);
       navigate(`/play/${updatedRoom.roomCode}`);
+    }
+
+    // Only fires for a "PER_ROUND" category-mode room - see
+    // CategoryPickerPrompt. Opened the moment the host presses "start game"
+    // (round 1, or a fresh match in a reused room); hands off to
+    // handleGameStart once the host actually picks a category.
+    function handleCategoryPending(payload: { roomId: string; lastCategory: string | null }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      setError(null);
+      setCategoryError(null);
+      setCategoryPending({ lastCategory: payload.lastCategory });
+    }
+
+    // The room could no longer actually start once the host finished
+    // picking (e.g. someone left while they were choosing) - surface it to
+    // everyone, since they've been sitting on a "waiting for host" popup
+    // this whole time with no other signal.
+    function handleCategoryFailed(payload: { roomId: string; error: string }) {
+      if (payload.roomId !== useRoomStore.getState().room?.id) return;
+      setCategoryPending(null);
+      setError(payload.error);
     }
 
     function handleDisbanded(payload: { message?: string } = {}) {
@@ -76,6 +110,8 @@ export function Lobby() {
 
     socket.on("room:update", handleRoomUpdate);
     socket.on("game:start", handleGameStart);
+    socket.on("game:categoryPending", handleCategoryPending);
+    socket.on("game:categoryFailed", handleCategoryFailed);
     socket.on("room:disbanded", handleDisbanded);
     socket.on("room:kicked", handleKicked);
     const stopJoining = subscribeToRoom(socket, roomCode,
@@ -101,6 +137,8 @@ export function Lobby() {
       stopJoining();
       socket.off("room:update", handleRoomUpdate);
       socket.off("game:start", handleGameStart);
+      socket.off("game:categoryPending", handleCategoryPending);
+      socket.off("game:categoryFailed", handleCategoryFailed);
       socket.off("room:disbanded", handleDisbanded);
       socket.off("room:kicked", handleKicked);
     };
@@ -127,6 +165,19 @@ export function Lobby() {
       setError(extractErrorMessage(err));
     } finally {
       setIsStarting(false);
+    }
+  }
+
+  async function handleSelectCategory(category: string) {
+    if (!room) return;
+    setIsSelectingCategory(true);
+    try {
+      const response = await emitWithAck("game:selectCategory", { roomId: room.id, category });
+      if (!response.ok) setCategoryError(response.error);
+    } catch (err) {
+      setCategoryError(extractErrorMessage(err));
+    } finally {
+      setIsSelectingCategory(false);
     }
   }
 
@@ -295,6 +346,15 @@ export function Lobby() {
           onCancel={() => setKickTarget(null)}
         />
       )}
+      <CategoryPickerPrompt
+        pending={categoryPending}
+        isHost={isHost}
+        isSubmitting={isSelectingCategory}
+        error={categoryError}
+        onSelect={(category) => void handleSelectCategory(category)}
+        onDismissError={() => setCategoryError(null)}
+        context="roundStart"
+      />
     </div>
   );
 }

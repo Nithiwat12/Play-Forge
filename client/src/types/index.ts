@@ -37,8 +37,9 @@ export interface RoomSettings {
   // category section and games/spyfall/categories.ts for the id/label list.
   // Unset/"RANDOM" = no restriction. "FIXED" = the whole match is
   // restricted to `category`. "PER_ROUND" = restricted too, but the host
-  // re-picks (or repeats) `category` before each round after the first,
-  // via the "game:categoryPending"/"game:selectCategory" socket exchange.
+  // re-picks (or repeats) `category` before EVERY round, including the
+  // first, via the "game:categoryPending"/"game:selectCategory" socket
+  // exchange (see Lobby's and PlayPage's own CategoryPickerPrompt usage).
   categoryMode?: "RANDOM" | "FIXED" | "PER_ROUND";
   category?: string;
 }

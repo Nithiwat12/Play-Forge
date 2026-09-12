@@ -56,11 +56,13 @@ export interface SpyfallConfig {
   // SPYFALL_CATEGORIES. Undefined/"RANDOM" = pick from every location, no
   // restriction. "FIXED" restricts every round to `category`. "PER_ROUND"
   // restricts THIS round to `category` too - the host re-chooses (or
-  // repeats) it before each round after the first via the game-agnostic
-  // continue-vote system (see gameSocket's pendingCategoryPicks), which
-  // simply persists its pick onto Room.settings.category before the next
-  // round is started - so from this engine's point of view PER_ROUND and
-  // FIXED behave identically, it's just a filter on the pool.
+  // repeats) it before EVERY round, including the first, via
+  // gameSocket's pendingCategoryPicks (opened either from the lobby's
+  // "start game" button or the continue-vote system between rounds), which
+  // simply persists its pick onto Room.settings.category before the round
+  // is started - so from this engine's point of view PER_ROUND and FIXED
+  // behave identically, it's just a filter on the pool, and `category` is
+  // always already set by the time a round actually begins.
   categoryMode?: "RANDOM" | "FIXED" | "PER_ROUND";
   category?: string;
 }
