@@ -1,3 +1,5 @@
+import { RoleConfiguration } from "../components/roles/RoleConfiguration";
+import type { RoleConfig } from "../components/roles/types";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../components/common/Navbar";
@@ -23,6 +25,15 @@ export function Lobby() {
   const currentUser = useAuthStore((s) => s.user);
   const { room, setRoom, clearRoom } = useRoomStore();
 
+  const [roleDraft, setRoleDraft] = useState<RoleConfig | null>(null);
+  const [savingRoles, setSavingRoles] = useState(false);
+  useEffect(() => { setRoleDraft(null); }, [room?.id, JSON.stringify(room?.settings?.roleConfig)]);
+  async function saveRoles() {
+    if (!room || !roleDraft) return;
+    setSavingRoles(true); setError(null);
+    try { const r = await emitWithAck("room:roles", { roomId: room.id, roleConfig: roleDraft }); if (!r.ok) setError(r.error); else setRoleDraft(null); }
+    catch { setError("บันทึกบทบาทไม่สำเร็จ"); } finally { setSavingRoles(false); }
+  }
   const [isJoining, setIsJoining] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -278,6 +289,10 @@ export function Lobby() {
             ))}
           </ul>
 
+          {(room.game.roleDefinitions?.length ?? 0) > 0 && <div className="mt-5 space-y-3">
+            <RoleConfiguration definitions={room.game.roleDefinitions ?? []} value={roleDraft ?? room.settings?.roleConfig ?? {}} onChange={setRoleDraft} playerCount={Math.max(room.game.minPlayers, room.players.filter(p => p.connected).length)} disabled={!isHost || savingRoles || isStarting} />
+            {isHost && roleDraft && <Button isLoading={savingRoles} onClick={() => void saveRoles()}>บันทึกบทบาท (ทุกคนต้องกดพร้อมใหม่)</Button>}
+          </div>}
           {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
           <div className="mt-6 flex flex-wrap gap-3">
@@ -289,7 +304,7 @@ export function Lobby() {
                 variant="primary"
                 onClick={handleStart}
                 isLoading={isStarting}
-                disabled={!canStart}
+                disabled={!canStart || savingRoles || Boolean(roleDraft)}
                 title={startBlockedReason}
               >
                 เริ่มเกม

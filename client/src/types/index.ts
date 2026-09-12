@@ -1,3 +1,4 @@
+import type { RoleConfig, RoleDefinition } from "../components/roles/types";
 // Mirrors the platform's REST/socket payload shapes. Kept independent of
 // the server package (no shared workspace lib) to keep client and server
 // deployable and versioned separately.
@@ -10,6 +11,7 @@ export interface User {
 }
 
 export interface Game {
+  roleDefinitions?: RoleDefinition[];
   id: string;
   name: string;
   slug: string;
@@ -31,6 +33,8 @@ export interface RoomPlayer {
 }
 
 export interface RoomSettings {
+  roleConfig?: RoleConfig;
+  island?: Record<string, unknown>;
   discussionSeconds?: number;
   numberOfRounds?: number;
   // How the location/topic for each round gets picked - see CreateRoom's

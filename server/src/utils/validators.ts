@@ -1,3 +1,5 @@
+import { roleConfigSchema } from "../games/core/roles";
+import { islandConfigSchema } from "../games/island_betrayal/config";
 import { z } from "zod";
 
 export const registerSchema = z.object({
@@ -21,6 +23,8 @@ export const loginSchema = z.object({
 
 export const roomSettingsSchema = z
   .object({
+    roleConfig: roleConfigSchema.optional(),
+    island: islandConfigSchema.optional(),
     // Minutes, converted to seconds before being stored/used by the engine.
     discussionMinutes: z.coerce.number().int().min(3).max(20).optional(),
     // How many rounds this room's match will run for. Left unset means

@@ -1,3 +1,4 @@
+import { GameRegistry } from "../games/core/GameRegistry";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../utils/ApiError";
 import type { PublicGame } from "../types";
@@ -15,6 +16,7 @@ function toPublicGame(game: {
     id: game.id,
     name: game.name,
     slug: game.slug,
+    roleDefinitions: GameRegistry.getRoleDefinitions(game.slug),
     description: game.description,
     minPlayers: game.minPlayers,
     maxPlayers: game.maxPlayers,

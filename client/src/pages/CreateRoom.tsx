@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { IslandRoomSettings, islandDefaults } from "../games/island_betrayal/IslandRoomSettings";
+import { RoleConfiguration } from "../components/roles/RoleConfiguration";
+import type { RoleConfig, RoleDefinition } from "../components/roles/types";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Navbar } from "../components/common/Navbar";
@@ -23,6 +26,10 @@ export function CreateRoom() {
   const navigate = useNavigate();
   const setRoom = useRoomStore((s) => s.setRoom);
 
+  const [roleConfig, setRoleConfig] = useState<RoleConfig>({});
+  const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinition[]>([]);
+  const [islandSettings, setIslandSettings] = useState(islandDefaults);
+  useEffect(() => { let cancelled = false; api.get<{game: {roleDefinitions?: RoleDefinition[]}}>(`/games/${gameSlug}`).then(r => { if (!cancelled) setRoleDefinitions(r.data.game.roleDefinitions ?? []); }).catch(() => {}); return () => { cancelled = true; }; }, [gameSlug]);
   const [roomName, setRoomName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(8);
   const [usePassword, setUsePassword] = useState(false);
@@ -51,7 +58,8 @@ export function CreateRoom() {
         maxPlayers,
         usePassword,
         password: usePassword ? password : undefined,
-        settings: isIsland ? {} : {
+        settings: isIsland ? { roleConfig, island: islandSettings } : {
+          ...(roleDefinitions.length ? { roleConfig } : {}),
           ...(discussionMinutes ? { discussionMinutes } : {}),
           ...(limitRounds ? { numberOfRounds } : {}),
           categoryMode,
@@ -98,10 +106,12 @@ export function CreateRoom() {
               label="จำนวนผู้เล่นสูงสุด"
               required
               min={isIsland ? 4 : 3}
-              max={8}
+              max={isIsland ? 15 : 8}
               value={maxPlayers}
               onChange={(e) => setMaxPlayers(Number(e.target.value))}
             />
+            <RoleConfiguration definitions={roleDefinitions} value={roleConfig} onChange={setRoleConfig} playerCount={maxPlayers} />
+            {isIsland && <IslandRoomSettings value={islandSettings} onChange={setIslandSettings} />}
             {isSpyfall && (
               <Input
                 id="discussionMinutes"
@@ -180,7 +190,7 @@ export function CreateRoom() {
             </div>
 
             </>}
-            {isIsland && <p className="rounded-lg bg-slate-900 p-4 text-sm text-slate-300">4–8 คน · กลางวัน 5 นาที · กลางคืน 30 วินาที · หนี 45 วินาที · สูงสุด 10 วันบนเกาะ จบแล้วบันทึกผลแยกแต่ละเกม</p>}
+            {isIsland && <p className="rounded-lg bg-slate-900 p-4 text-sm text-slate-300">4–15 คน · กลางวันและกลางคืนยาวเท่ากัน · เกาะใหญ่ มอนสเตอร์ Spy และภารกิจ จบแล้วบันทึกแยกแต่ละเกม</p>}
 
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input

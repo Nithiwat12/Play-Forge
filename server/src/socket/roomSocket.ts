@@ -1,3 +1,4 @@
+import { withRoomSetupLock } from "../games/core/roomSetupLock";
 import { abortRoomGame, refreshContinuePoll } from "./gameSocket";
 import { RoomService } from "../services/RoomService";
 import { GameManager } from "../games/core/GameManager";
@@ -74,6 +75,20 @@ export function registerRoomSocket(io: AppServer, socket: AppSocket) {
       }
     }
   );
+
+  socket.on("room:roles", async (payload: { roomId?: unknown; roleConfig?: unknown } = {}, ack: Ack = noopAck) => {
+    const roomId = typeof payload?.roomId === "string" ? payload.roomId : "";
+    if (!roomId) { ack({ ok: false, error: "กรุณาระบุห้อง" }); return; }
+    const roleConfig = payload?.roleConfig;
+    await withRoomSetupLock(roomId, async () => {
+      try {
+        if (!socket.rooms.has(roomId)) throw new Error("คุณไม่ได้อยู่ในห้องนี้");
+        const room = await RoomService.updateRoleConfig(userId, roomId, roleConfig);
+        io.to(roomId).emit("room:update", { room: withPresence(room) });
+        ack({ ok: true, room: withPresence(room) });
+      } catch (err) { ack({ ok: false, error: err instanceof Error ? err.message : "ตั้งค่าบทบาทไม่สำเร็จ" }); }
+    });
+  });
 
   socket.on("room:pause", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
     try {

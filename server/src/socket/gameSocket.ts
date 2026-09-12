@@ -1,3 +1,4 @@
+import { withRoomSetupLock } from "../games/core/roomSetupLock";
 import { RoomPresence } from "./roomPresence";
 import { GameManager } from "../games/core/GameManager";
 import { GAME_ENGINE_EVENTS } from "../games/core/types";
@@ -319,6 +320,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
   const userId = socket.data.user.id;
 
   socket.on("game:start", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {
+    await withRoomSetupLock(roomId, async () => {
     try {
       const room = await RoomService.assertCanStart(userId, roomId);
 
@@ -343,6 +345,7 @@ export function registerGameSocket(io: AppServer, socket: AppSocket) {
     } catch (err) {
       ack({ ok: false, error: err instanceof Error ? err.message : "เริ่มเกมไม่สำเร็จ" });
     }
+    });
   });
 
   socket.on("game:requestContinue", async ({ roomId }: { roomId: string }, ack: Ack = noopAck) => {

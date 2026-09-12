@@ -1,3 +1,4 @@
+import type { RoleDefinition } from "./roles";
 import type { BaseGame } from "./BaseGame";
 
 // `config` is opaque here on purpose - the platform never interprets a
@@ -18,11 +19,16 @@ type GameFactory = (roomId: string, config?: unknown) => BaseGame;
 class GameRegistryClass {
   private factories = new Map<string, GameFactory>();
 
-  register(slug: string, factory: GameFactory): void {
+  private roles = new Map<string, RoleDefinition[]>();
+
+  getRoleDefinitions(slug: string): RoleDefinition[] { return this.roles.get(slug) ?? []; }
+
+  register(slug: string, factory: GameFactory, roles: RoleDefinition[] = []): void {
     if (this.factories.has(slug)) {
       throw new Error(`A game is already registered for slug "${slug}"`);
     }
     this.factories.set(slug, factory);
+    this.roles.set(slug, roles);
   }
 
   has(slug: string): boolean {

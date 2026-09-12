@@ -1,3 +1,6 @@
+import { GameRegistry } from "../games/core/GameRegistry";
+import { resolveRoleCounts, roleConfigSchema } from "../games/core/roles";
+import { islandConfigSchema } from "../games/island_betrayal/config";
 import bcrypt from "bcryptjs";
 import { GameManager } from "../games/core/GameManager";
 import { Prisma } from "@prisma/client";
@@ -47,6 +50,7 @@ function toPublicRoom(room: RoomWithRelations): PublicRoom {
       id: room.game.id,
       name: room.game.name,
       slug: room.game.slug,
+      roleDefinitions: GameRegistry.getRoleDefinitions(room.game.slug),
       description: room.game.description,
       minPlayers: room.game.minPlayers,
       maxPlayers: room.game.maxPlayers,
@@ -129,6 +133,9 @@ export const RoomService = {
       );
     }
 
+    const definitions = GameRegistry.getRoleDefinitions(game.slug);
+    if (input.settings?.roleConfig && definitions.length === 0) throw ApiError.badRequest("เกมนี้ยังไม่รองรับการตั้งค่าบทบาท");
+    if (definitions.length) resolveRoleCounts(definitions, input.settings?.roleConfig, input.maxPlayers);
     const roomCode = await generateUniqueRoomCode();
     const passwordHash =
       input.usePassword && input.password
@@ -137,7 +144,7 @@ export const RoomService = {
 
     // Minutes are friendlier for a host to type; the engine works in
     // seconds, so the conversion happens once, right at creation time.
-    const settings: RoomSettings | undefined =
+    let settings: RoomSettings | undefined =
       game.slug !== "island_betrayal" && (
         input.settings?.discussionMinutes ||
         input.settings?.numberOfRounds ||
@@ -163,6 +170,9 @@ export const RoomService = {
               : {}),
           }
         : undefined;
+
+    if (definitions.length) settings = { ...settings, roleConfig: input.settings?.roleConfig ?? {} };
+    if (game.slug === "island_betrayal") settings = { ...settings, island: islandConfigSchema.parse(input.settings?.island ?? {}) };
 
     const room = await prisma.room.create({
       data: {
@@ -364,6 +374,19 @@ export const RoomService = {
     const room = await findById(roomId);
     await assertRoundCanStart(room);
     return room;
+  },
+
+  async updateRoleConfig(userId: string, roomId: string, input: unknown): Promise<PublicRoom> {
+    const room = await findById(roomId);
+    if (room.hostId !== userId) throw ApiError.forbidden("เฉพาะหัวหน้าห้องที่ตั้งค่าบทบาทได้");
+    if (room.status !== "WAITING" || GameManager.isGameActive(roomId)) throw ApiError.conflict("เริ่มเกมแล้ว เปลี่ยนบทบาทไม่ได้");
+    const definitions = GameRegistry.getRoleDefinitions(room.game.slug);
+    if (!definitions.length) throw ApiError.badRequest("เกมนี้ยังไม่รองรับการตั้งค่าบทบาท");
+    const roleConfig = roleConfigSchema.parse(input);
+    resolveRoleCounts(definitions, roleConfig, room.maxPlayers);
+    await prisma.room.update({ where: { id: roomId }, data: { settings: { ...((room.settings as RoomSettings) ?? {}), roleConfig } as any } });
+    await this.resetReadiness(roomId);
+    return toPublicRoom(await findById(roomId));
   },
 
   async markPlaying(roomId: string) {

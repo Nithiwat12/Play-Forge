@@ -2,27 +2,26 @@ import { randomInt, randomUUID } from "crypto";
 import { BaseGame } from "../core/BaseGame";
 import { GameActionError, GAME_ENGINE_EVENTS, type GameResult } from "../core/types";
 
-export const RESOURCES = ["wood", "metal", "rope", "food", "water", "medicine", "parts", "valuable"] as const;
-export type Resource = typeof RESOURCES[number];
-export const LOCATIONS = ["camp", "jungle", "mountain", "shipwreck", "village", "beach", "volcano"] as const;
-type Location = typeof LOCATIONS[number];
-type Phase = "DAY_START" | "ACTION" | "SECRET" | "EVENT" | "SURVIVAL" | "ESCAPE" | "FINISHED";
+import { RESOURCES, LOCATIONS, WORLD, ROUTES, neighbours, MONSTER_TYPES, type Resource, type Location } from "./world";
+import { ISLAND_ROLES, islandConfigSchema, type IslandConfig } from "./config";
+import { assignRoles, resolveRoleCounts } from "../core/roles";
+export { RESOURCES } from "./world";
+type Phase = "DAY_START" | "DAY" | "NIGHT" | "MORNING" | "DISCUSSION" | "VOTE" | "VOTE_RESULT" | "ESCAPE" | "FINISHED";
 type Inventory = Record<Resource, number>;
 export const BOAT_COST = { wood: 6, metal: 4, rope: 3, parts: 2 };
 type Component = keyof typeof BOAT_COST;
-const LOOT: Record<Location, Resource[]> = {
-  camp: ["water", "food"], jungle: ["wood", "food", "rope"], mountain: ["metal", "parts", "valuable"],
-  shipwreck: ["metal", "parts", "medicine", "rope"], village: ["food", "water", "medicine"],
-  beach: ["wood", "rope", "water"], volcano: ["valuable", "metal", "parts"],
-};
+interface Drop { id: string; location: Location; items: Inventory; expiresDay: number; hiddenUntilMorning?: boolean }
+interface Monster { id: string; type: number; location: Location; hp: number; maxHp: number; damage: number; detectionRange: number; detection: number; aggression: number; nextMoveAt: number }
+interface Mission { id: string; resource: Resource; quantity: number; location: Location; progress: number }
 const OBJECTIVES = ["หนีออกจากเกาะพร้อมของมีค่าอย่างน้อย 2 ชิ้น", "ช่วยผู้เล่นที่แตกต่างกันอย่างน้อย 3 คน", "ไม่บริจาคทรัพยากรให้เรือเลย", "ก่อวินาศกรรมเรือสำเร็จอย่างน้อย 2 ครั้ง"];
-const NAMES: Record<string, string> = { camp: "แคมป์", jungle: "ป่า", mountain: "ภูเขา", shipwreck: "ซากเรือ", village: "หมู่บ้าน", beach: "ชายหาด", volcano: "ภูเขาไฟ", wood: "ไม้", metal: "โลหะ", rope: "เชือก", food: "อาหาร", water: "น้ำ", medicine: "ยา", parts: "ชิ้นส่วน", valuable: "ของมีค่า" };
-interface Secret { kind: "HELP" | "INVESTIGATE" | "STEAL" | "SABOTAGE" | "SKIP"; target?: string; resource?: Resource; component?: Component }
+const NAMES: Record<string, string> = { ...Object.fromEntries(LOCATIONS.map(l => [l, WORLD[l].name])), fruit: "ผลไม้", canned: "อาหารกระป๋อง", energy_drink: "เครื่องดื่มชูกำลัง", torch: "คบไฟ", camp: "แคมป์", jungle: "ป่า", mountain: "ภูเขา", shipwreck: "ซากเรือ", village: "หมู่บ้าน", beach: "ชายหาด", volcano: "ภูเขาไฟ", wood: "ไม้", metal: "โลหะ", rope: "เชือก", food: "อาหาร", water: "น้ำ", medicine: "ยา", parts: "ชิ้นส่วน", valuable: "ของมีค่า" };
+
 interface Survivor {
   userId: string; username: string; connected: boolean; alive: boolean; location: Location;
   health: number; energy: number; hunger: number; thirst: number; inventory: Inventory;
+  role: string; bagLevel: number; restAt: number; nightUsed: boolean; votedFor?: string; eliminatedRole?: string; nightLocation: Location;
   objective: number; helped: string[]; contributed: number; sabotages: number;
-  secret: Secret | null; evidence: string[]; escape: "BOARD" | "STAY" | null; escaped: boolean;
+  evidence: string[]; escape: "BOARD" | "STAY" | null; escaped: boolean;
 }
 interface Log { id: string; day: number; text: string }
 interface Offer { id: string; from: string; to: string; give: { resource: Resource; quantity: number }; want: { resource: Resource; quantity: number }; status: "pending" | "accepted" | "rejected" | "expired" }
@@ -35,6 +34,22 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 /** One room owns one engine. Mutations are synchronous, so validation and transfers are atomic. */
 export class IslandBetrayalGame extends BaseGame {
   readonly slug = "island_betrayal";
+  private readonly config: IslandConfig;
+  private readonly roomConfig: { roleConfig?: unknown };
+  private worldTimer: NodeJS.Timeout | null = null;
+  private drops: Drop[] = [];
+  private monsters: Monster[] = [];
+  private nests: { id: string; location: Location; hp: number }[] = [];
+  private missions: Mission[] = [];
+  private votes = new Map<string, string>();
+  private voteResult: { counts: Record<string, number>; eliminated: string | null; role?: string; tied: boolean } | null = null;
+  private revoted = false;
+  private hiddenDeaths = new Set<string>();
+  private encounter = new Map<string, string>();
+  private avoided = new Map<string, number>();
+  constructor(roomId: string, settings?: { roleConfig?: unknown; island?: unknown }) {
+    super(roomId); this.roomConfig = settings ?? {}; this.config = islandConfigSchema.parse(settings?.island ?? {});
+  }
   private survivors = new Map<string, Survivor>();
   private phase: Phase = "DAY_START";
   private day = 1;
@@ -55,16 +70,22 @@ export class IslandBetrayalGame extends BaseGame {
 
   start(): void {
     if (this.started) fail("เกมเริ่มแล้ว");
-    if (this.players.size < 4 || this.players.size > 8) fail("Island Betrayal ต้องมีผู้เล่น 4–8 คน");
+    if (this.players.size < 4 || this.players.size > 15) fail("Island Betrayal ต้องมีผู้เล่น 4–15 คน");
+    const roles = assignRoles([...this.players.keys()], resolveRoleCounts(ISLAND_ROLES, this.roomConfig.roleConfig, this.players.size));
+    if (this.config.survivorEscape === "minimum" && this.config.minimumEscape > [...roles.values()].filter(r => r === "survivor").length) fail("จำนวนผู้รอดชีวิตขั้นต่ำที่ต้องหนีมากกว่าผู้รอดชีวิตจริง");
     this.started = true;
-    this.seats = Math.min(this.players.size, 5);
+    this.seats = this.players.size;
+    this.missions = this.config.missions.map((m, i) => ({ ...m, id: `mission-${i}`, progress: 0 }));
+    this.nests = ["forest", "cave", "ruins"].map((location, i) => ({ id: `nest-${i}`, location: location as Location, hp: 60 }));
     for (const p of this.players.values()) this.survivors.set(p.userId, {
-      ...p, connected: true, alive: true, location: "camp", health: 100, energy: 10, hunger: 100, thirst: 100,
+      ...p, connected: true, alive: true, location: "camp", health: 100, energy: 100, hunger: 100, thirst: 100,
       inventory: { ...emptyInventory(), food: 2, water: 2 }, objective: randomInt(OBJECTIVES.length),
-      helped: [], contributed: 0, sabotages: 0, secret: null, evidence: [], escape: null, escaped: false,
+      role: roles.get(p.userId)!, bagLevel: 0, restAt: 0, nightUsed: false, nightLocation: "camp",
+      helped: [], contributed: 0, sabotages: 0, evidence: [], escape: null, escaped: false,
     });
-    this.log("ทุกคนติดอยู่บนเกาะ ไม่มีบทบาทคนทรยศตายตัว จงเลือกว่าจะไว้ใจใคร");
+    this.log("ทุกคนติดอยู่บนเกาะ มี Spy แฝงตัวอยู่ ทำภารกิจ สร้างเรือ และเดินทางไปชายหาดเพื่อหนี");
     this.beginDay();
+    this.worldTimer = setInterval(() => { this.worldTick(); this.changed(); }, 10_000);
   }
   private log(text: string, secret = false) {
     const entry = { id: randomUUID(), day: this.day, text };
@@ -80,9 +101,11 @@ export class IslandBetrayalGame extends BaseGame {
     this.timer = setTimeout(() => { this.advancePhase(); this.changed(); }, milliseconds);
   }
   private beginDay() {
-    if (!this.living().length || this.day > 10) { this.log("เกาะถูกกลืนโดยภูเขาไฟ การเดินทางสิ้นสุดแล้ว"); this.end(); return; }
-    for (const p of this.living()) { p.energy = Math.max(0, 10 - (this.weather === "พายุ" ? 1 : 0)); p.secret = null; }
-    this.log(`เริ่มวันที่ ${this.day} · คืนวันที่ 10 เป็นคืนสุดท้ายก่อนภูเขาไฟระเบิด`);
+    if (!this.living().length || this.day > this.config.maxDays) { this.day = Math.min(this.day, this.config.maxDays); this.log("ถึงกำหนดวันสุดท้ายบนเกาะ"); this.end(); return; }
+    this.drops = this.drops.filter(d => d.expiresDay > this.day);
+    for (const p of this.living()) { p.energy = Math.min(100, p.energy + (p.hunger > 20 && p.thirst > 20 ? 30 : 10)); p.nightUsed = false; }
+    for (const l of LOCATIONS) { this.ground[l] = emptyInventory(); for (let i = 0; i < Math.ceil(this.players.size / 2 * this.config.spawnMultiplier); i++) this.ground[l][this.rollLoot(l)]++; }
+    this.spawnMonsters(); this.log(`เริ่มวันที่ ${this.day} / ${this.config.maxDays} ทรัพยากรใหม่ปรากฏบนเกาะ`);
     this.schedule("DAY_START", 2000);
   }
   private expireRequests() {
@@ -92,14 +115,18 @@ export class IslandBetrayalGame extends BaseGame {
   private advancePhase() {
     if (this.finished) return;
     switch (this.phase) {
-      case "DAY_START": this.schedule("ACTION", 300_000); break;
-      case "ACTION": this.expireRequests(); this.schedule("SECRET", 30_000); if (!this.living(true).length) this.resolveSecrets(); break;
-      case "SECRET": this.resolveSecrets(); break;
-      case "EVENT": this.survive(); if (!this.finished) this.schedule("SURVIVAL", 3000); break;
-      case "SURVIVAL":
-        if (this.day >= 10) { this.log("ภูเขาไฟระเบิดหลังคืนวันที่ 10 การเดินทางสิ้นสุดแล้ว"); this.end(); }
-        else { this.day++; this.beginDay(); }
-        break;
+      case "DAY_START": this.schedule("DAY", this.config.cycleSeconds * 1000); this.maybeEscape(); break;
+      case "DAY":
+        this.expireRequests(); for (const p of this.survivors.values()) { p.nightUsed = false; p.nightLocation = p.location; }
+        this.log("ค่ำคืนมาเยือน กลับแคมป์หรือเสี่ยงอยู่ข้างนอกได้ ตำแหน่งสาธารณะระหว่างคืนคือข้อมูลล่าสุดก่อนค่ำ");
+        this.schedule("NIGHT", this.config.cycleSeconds * 1000); break;
+      case "NIGHT":
+        this.hiddenDeaths.clear(); this.drops.forEach(d => { d.hiddenUntilMorning = false; });
+        this.runEvent(); this.survive(); if (!this.finished) this.schedule("MORNING", 5000); break;
+      case "MORNING": this.schedule("DISCUSSION", this.config.discussionSeconds * 1000); break;
+      case "DISCUSSION": this.votes.clear(); this.voteResult = null; this.revoted = false; this.schedule("VOTE", this.config.voteSeconds * 1000); break;
+      case "VOTE": this.resolveVote(); break;
+      case "VOTE_RESULT": this.day++; this.beginDay(); break;
       case "ESCAPE": this.finishEscape(); break;
     }
   }
@@ -120,6 +147,7 @@ export class IslandBetrayalGame extends BaseGame {
   private heal(p: Survivor, resource: Resource) {
     if (resource === "medicine") p.health = Math.min(100, p.health + 25);
     if (resource === "food") p.hunger = Math.min(100, p.hunger + 35);
+    if (["food", "fruit", "canned", "energy_drink"].includes(resource)) { p.energy = Math.min(100, p.energy + ({ food: 25, fruit: 10, canned: 20, energy_drink: 35 } as Record<string, number>)[resource]); p.hunger = Math.min(100, p.hunger + (resource === "food" ? 0 : 15)); }
     if (resource === "water") p.thirst = Math.min(100, p.thirst + 35);
   }
   private help(p: Survivor, t: Survivor, r: Resource, secret: boolean) {
@@ -129,13 +157,17 @@ export class IslandBetrayalGame extends BaseGame {
     if (secret) t.evidence.push(`คืนวันที่ ${this.day}: มีคนช่วยคุณด้วย${NAMES[r]}`);
   }
   private checkDeaths() {
-    for (const p of this.living()) if (p.health <= 0) {
-      p.health = 0; p.alive = false; p.secret = null;
-      this.log(`${p.username} เสียชีวิต และเข้าสู่โหมดผู้ชม`);
-      this.offers.filter(o => o.from === p.userId || o.to === p.userId).forEach(o => { if (o.status === "pending") o.status = "expired"; });
-      this.requests.filter(r => r.from === p.userId && r.status === "open").forEach(r => r.status = "expired");
-    }
+    for (const p of this.living()) if (p.health <= 0) this.kill(p, false);
     if (!this.living().length) this.end();
+  }
+  private kill(p: Survivor, hidden: boolean) {
+    p.health = 0; p.alive = false; this.encounter.delete(p.userId);
+    if (hidden) this.hiddenDeaths.add(p.userId);
+    this.drop(p.location, { ...p.inventory }, hidden); p.inventory = emptyInventory();
+    this.log(hidden ? "มีผู้เล่นเสียชีวิตอย่างลึกลับในคืนนี้" : `${p.username} เสียชีวิตและกลายเป็นผู้ชม`, false);
+    this.log(`${p.username} เสียชีวิตที่ ${NAMES[p.location]}`, hidden);
+    this.offers.filter(o => o.from === p.userId || o.to === p.userId).forEach(o => { if (o.status === "pending") o.status = "expired"; });
+    this.requests.filter(r => r.from === p.userId && r.status === "open").forEach(r => r.status = "expired");
   }
   handleAction(userId: string, actionType: string, payload: unknown): void {
     // A delayed timer callback cannot give clients extra action time.
@@ -150,9 +182,13 @@ export class IslandBetrayalGame extends BaseGame {
       if (this.chat.length > 100) this.chat.shift();
       this.changed(); return;
     }
-    if (actionType === "island:secret") { this.lockSecret(p, a); this.changed(); return; }
+    if (p.escape === "BOARD" && actionType !== "island:escape") fail("คุณอยู่บนเรือแล้ว รอออกเดินทาง");
+    if (actionType === "island:vote") { this.castVote(p, a); this.changed(); return; }
+    if (actionType === "island:kill" || actionType === "island:sabotage") { this.spyAction(p, actionType, a); this.changed(); return; }
     if (actionType === "island:escape") { this.chooseEscape(p, a); this.changed(); return; }
-    if (this.phase !== "ACTION") fail("ทำรายการนี้ได้เฉพาะช่วงกลางวัน");
+    const travelling = ["island:move", "island:use", "island:rest", "island:encounter", "island:drop", "island:pickup", "island:collect"].includes(actionType);
+    if (this.phase !== "DAY" && !(travelling && ["NIGHT", "ESCAPE"].includes(this.phase))) fail("ทำรายการนี้ไม่ได้ในช่วงปัจจุบัน");
+    if (this.encounter.has(userId) && !["island:encounter", "island:use", "island:drop"].includes(actionType)) fail("ต้องรับมือมอนสเตอร์ก่อน");
     switch (actionType) {
       case "island:warning": {
         if (typeof a.text !== "string" || !a.text.trim() || a.text.length > 300) fail("คำเตือนต้องยาว 1–300 ตัวอักษร");
@@ -162,25 +198,28 @@ export class IslandBetrayalGame extends BaseGame {
       }
       case "island:move": {
         if (!member(LOCATIONS, a.location) || a.location === p.location) fail("เลือกสถานที่อื่นบนเกาะ");
-        this.energy(p, 1); p.location = a.location as Location;
-        this.log(`${p.username} เดินทางไป${NAMES[p.location]}`); break;
+        const route = neighbours(p.location).find(r => r.location === a.location);
+        if (!route) fail("จุดหมายไม่เชื่อมต่อกับตำแหน่งปัจจุบัน");
+        this.energy(p, Math.ceil(route!.cost * this.config.movementMultiplier)); p.location = a.location as Location;
+        this.log(`${p.username} เดินทางไป${NAMES[p.location]}`, this.phase === "NIGHT");
+        this.detect(p); break;
       }
       case "island:explore": {
-        this.energy(p, 2);
-        const pool = LOOT[p.location]; const r = pool[randomInt(pool.length)];
+        this.energy(p, 10);
+        const r = this.rollLoot(p.location);
         const count = 1 + randomInt(3); this.ground[p.location][r] += count;
         this.log(`${p.username} พบ${NAMES[r]} ${count} ที่${NAMES[p.location]} (กดเก็บเพื่อใส่กระเป๋า)`);
-        if (randomInt(100) < (p.location === "volcano" ? 40 : 15)) { p.health -= 15; this.log(`${p.username} บาดเจ็บจากการสำรวจ −15 สุขภาพ`); }
-        this.checkDeaths(); break;
+        if (randomInt(100) < WORLD[p.location].danger * 5) { p.health -= 15; this.log(`${p.username} บาดเจ็บจากการสำรวจ −15 สุขภาพ`); }
+        this.checkDeaths(); if (p.alive) this.detect(p); break;
       }
       case "island:collect": {
         const r = this.resource(a.resource), q = this.quantity(a.quantity);
         if (this.ground[p.location][r] < q) fail("ของที่จุดนี้ไม่พอ หรือมีคนเก็บไปแล้ว");
-        this.ground[p.location][r] -= q; p.inventory[r] += q;
-        this.log(`${p.username} เก็บ${NAMES[r]} ${q}`); break;
+        this.checkCapacity(p, q); this.ground[p.location][r] -= q; p.inventory[r] += q;
+        this.log(`${p.username} เก็บ${NAMES[r]} ${q}`, this.phase === "NIGHT"); break;
       }
       case "island:use": {
-        const r = this.resource(a.resource); if (!["food", "water", "medicine"].includes(r)) fail("ใช้ได้เฉพาะอาหาร น้ำ หรือยา");
+        const r = this.resource(a.resource); if (!["food", "water", "medicine", "fruit", "canned", "energy_drink"].includes(r)) fail("ไอเทมนี้ใช้ฟื้นฟูไม่ได้");
         this.spend(p, r, 1); this.heal(p, r); this.log(`${p.username} ใช้${NAMES[r]}`, true); break;
       }
       case "island:contribute": {
@@ -191,9 +230,7 @@ export class IslandBetrayalGame extends BaseGame {
         if (q > BOAT_COST[c] - this.boat[c]) fail("จำนวนเกินที่เรือต้องการ");
         this.spend(p, r, q); this.boat[c] += q; p.contributed += q;
         this.log(`${p.username} บริจาค${NAMES[r]} ${q} ให้เรือ`);
-        if (Object.keys(BOAT_COST).every(k => this.boat[k as Component] >= BOAT_COST[k as Component])) {
-          this.expireRequests(); this.log(`เรือพร้อมออกเดินทาง! มี ${this.seats} ที่นั่ง ใครขึ้นก่อนมีสิทธิ์ก่อน`); this.schedule("ESCAPE", 45_000);
-        }
+        this.maybeEscape();
         break;
       }
       case "island:help": {
@@ -216,7 +253,7 @@ export class IslandBetrayalGame extends BaseGame {
         const req = request!; const t = this.target(req.from, userId);
         if (p.location !== t.location) fail("ต้องอยู่สถานที่เดียวกัน");
         if (req.kind === "help") this.help(p, t, req.resource, false);
-        else { this.spend(p, req.resource, req.quantity); t.inventory[req.resource] += req.quantity; this.log(`${p.username} ส่ง${NAMES[req.resource]} ${req.quantity} ให้ ${t.username}`); }
+        else { this.checkCapacity(t, req.quantity); this.spend(p, req.resource, req.quantity); t.inventory[req.resource] += req.quantity; this.log(`${p.username} ส่ง${NAMES[req.resource]} ${req.quantity} ให้ ${t.username}`); }
         req.status = "fulfilled"; break;
       }
       case "island:offer": {
@@ -235,58 +272,163 @@ export class IslandBetrayalGame extends BaseGame {
         const t = this.target(offer.from, userId);
         if (p.location !== t.location) fail("ต้องอยู่สถานที่เดียวกันเพื่อแลกของ");
         if (t.inventory[offer.give.resource] < offer.give.quantity || p.inventory[offer.want.resource] < offer.want.quantity) fail("ทรัพยากรของฝ่ายใดฝ่ายหนึ่งไม่พอ");
+        this.checkCapacity(p, offer.give.quantity - offer.want.quantity); this.checkCapacity(t, offer.want.quantity - offer.give.quantity);
         t.inventory[offer.give.resource] -= offer.give.quantity; p.inventory[offer.give.resource] += offer.give.quantity;
         p.inventory[offer.want.resource] -= offer.want.quantity; t.inventory[offer.want.resource] += offer.want.quantity;
         offer.status = "accepted"; this.log(`${p.username} แลกของกับ ${t.username}`); break;
       }
+      case "island:rest": {
+        if (Date.now() < p.restAt) fail("กำลังพัก รอให้ครบ 20 วินาที");
+        if (this.encounter.has(userId)) fail("พักระหว่างเผชิญมอนสเตอร์ไม่ได้");
+        p.restAt = Date.now() + 20_000;
+        p.energy = Math.min(100, p.energy + (p.hunger < 20 || p.thirst < 20 ? 5 : p.location === "camp" ? 20 : 10));
+        if (p.location === "camp") p.health = Math.min(100, p.health + 5); break;
+      }
+      case "island:upgrade": {
+        if (!["camp", "workshop"].includes(p.location)) fail("อัปเกรดได้ที่แคมป์หรือโรงงานเท่านั้น");
+        if (p.bagLevel + 1 >= this.config.bagCapacities.length) fail("กระเป๋าระดับสูงสุดแล้ว");
+        if (p.inventory.rope < 2 || p.inventory.metal < 2 || p.inventory.parts < 1) fail("ต้องใช้เชือก 2 โลหะ 2 ชิ้นส่วน 1");
+        p.inventory.rope -= 2; p.inventory.metal -= 2; p.inventory.parts--; p.bagLevel++; break;
+      }
+      case "island:drop": {
+        const r = this.resource(a.resource), q = this.quantity(a.quantity); this.spend(p, r, q);
+        this.drop(p.location, { ...emptyInventory(), [r]: q }); this.log(`${p.username} วางของที่${NAMES[p.location]}`, this.phase === "NIGHT"); break;
+      }
+      case "island:pickup": {
+        const d = this.drops.find(d => d.id === a.id && d.location === p.location && d.expiresDay > this.day);
+        const r = this.resource(a.resource), q = this.quantity(a.quantity);
+        if (!d || d.items[r] < q) fail("ของไม่อยู่ที่นี่ หมดอายุ หรือถูกเก็บแล้ว");
+        this.checkCapacity(p, q); d!.items[r] -= q; p.inventory[r] += q; break;
+      }
+      case "island:mission": {
+        const m = this.missions.find(m => m.id === a.id); const q = this.quantity(a.quantity);
+        if (!m || m.location !== p.location || q > m.quantity - m.progress) fail("ต้องอยู่ที่ภารกิจและส่งจำนวนที่ยังขาด");
+        this.spend(p, m!.resource, q); m!.progress += q;
+        this.log(`${p.username} ส่ง${NAMES[m!.resource]} ${q} ให้ภารกิจ`); this.maybeEscape(); break;
+      }
+      case "island:nest": {
+        const nest = this.nests.find(n => n.id === a.id && n.location === p.location && n.hp > 0);
+        if (!nest) fail("ไม่พบรังที่ตำแหน่งนี้"); this.energy(p, 15); nest!.hp = Math.max(0, nest!.hp - 20);
+        if (nest!.hp === 0) this.log(`${p.username} ทำลายรังมอนสเตอร์ที่${NAMES[p.location]} ลดภัยในพื้นที่แล้ว`); break;
+      }
+      case "island:encounter": this.handleEncounter(p, a); break;
       default: fail("ไม่รองรับคำสั่งนี้");
     }
     this.changed();
   }
-  private lockSecret(p: Survivor, a: Record<string, unknown>) {
-    if (this.phase !== "SECRET" || p.secret) fail("ล็อกแอ็กชันลับได้ครั้งเดียวในช่วงกลางคืน");
-    if (!member(["HELP", "INVESTIGATE", "STEAL", "SABOTAGE", "SKIP"] as const, a.kind)) fail("แอ็กชันลับไม่ถูกต้อง");
-    const s: Secret = { kind: a.kind as Secret["kind"] };
-    if (s.kind === "STEAL" || s.kind === "HELP") s.target = this.target(a.target, p.userId).userId;
-    if (s.kind === "HELP") { s.resource = this.resource(a.resource); if (!["food", "water", "medicine"].includes(s.resource) || p.inventory[s.resource] < 1) fail("ต้องมีอาหาร น้ำ หรือยาเพื่อช่วย"); }
-    if (s.kind === "SABOTAGE") { if (!member(Object.keys(BOAT_COST), a.component)) fail("เลือกส่วนของเรือ"); s.component = a.component as Component; }
-    if (s.kind === "INVESTIGATE") {
-      if (a.target !== "boat" && a.target !== "event" && !member(LOCATIONS, a.target)) this.target(a.target, p.userId);
-      s.target = a.target as string;
-    }
-    p.secret = s;
-    if (this.living(true).every(p => p.secret)) this.resolveSecrets();
+  private capacity(p: Survivor) { return this.config.bagCapacities[p.bagLevel]; }
+  private used(p: Survivor) { return Object.values(p.inventory).reduce((a, b) => a + b, 0); }
+  private checkCapacity(p: Survivor, change: number) { if (this.used(p) + change > this.capacity(p)) fail("กระเป๋าเต็ม วางของหรืออัปเกรดก่อน"); }
+  private drop(location: Location, items: Inventory, hiddenUntilMorning = false) {
+    if (Object.values(items).some(n => n > 0)) this.drops.push({ id: randomUUID(), location, items, expiresDay: this.day + this.config.dropLifetimeDays, hiddenUntilMorning });
   }
-  private resolveSecrets() {
-    // Shuffle avoids permanent roster-order advantage. Snapshot intentions before any effects.
-    const actions = this.living(true).map(p => ({ p, s: p.secret ?? { kind: "SKIP" } as Secret }));
-    for (let i = actions.length - 1; i > 0; i--) { const j = randomInt(i + 1); [actions[i], actions[j]] = [actions[j], actions[i]]; }
-    for (const { p, s } of actions.filter(a => a.s.kind !== "INVESTIGATE")) {
-      const t = s.target ? this.survivors.get(s.target) : undefined;
-      if (s.kind === "STEAL" && t?.alive) {
-        const items = RESOURCES.filter(r => t.inventory[r] > 0);
-        if (items.length) { const r = items[randomInt(items.length)]; t.inventory[r]--; p.inventory[r]++; t.evidence.push(`คืนวันที่ ${this.day}: ${NAMES[r]} หายไป 1`); p.evidence.push(`คืนวันที่ ${this.day}: ขโมย${NAMES[r]} 1 สำเร็จ`); this.log(`${p.username} ขโมย${NAMES[r]} 1 จาก ${t.username}`, true); this.log("มีคนขโมยของในคืนนี้"); }
-        else p.evidence.push(`คืนวันที่ ${this.day}: ขโมยไม่สำเร็จ เป้าหมายไม่มีของ`);
-      } else if (s.kind === "SABOTAGE" && s.component) {
-        if (this.boat[s.component] > 0) { this.boat[s.component]--; p.sabotages++; this.log(`${p.username} ทำลายส่วน${NAMES[s.component]}ของเรือ`, true); this.log(`เรือเสียหาย ส่วน${NAMES[s.component]}ลดลง 1`); }
-        else p.evidence.push(`คืนวันที่ ${this.day}: ส่วนเรือนี้ยังไม่มีความคืบหน้า จึงทำลายไม่สำเร็จ`);
-      } else if (s.kind === "HELP" && t?.alive && s.resource) {
-        if (p.inventory[s.resource] > 0) this.help(p, t, s.resource, true);
-        else p.evidence.push(`คืนวันที่ ${this.day}: ช่วยไม่สำเร็จ ของที่เตรียมไว้หายไป`);
-      } else this.log(`${p.username} ไม่ลงมือในคืนนี้`, true);
+  private rollLoot(location: Location): Resource {
+    const entries = Object.entries(WORLD[location].loot); let roll = randomInt(entries.reduce((sum, [, weight]) => sum + weight, 0));
+    for (const [r, weight] of entries) { roll -= weight; if (roll < 0) return r as Resource; }
+    return "water";
+  }
+  private threat() { return Math.min(this.config.maxThreat, 1 + (this.day - 1) * this.config.threatPerDay); }
+  private spawnMonsters() {
+    const threat = this.threat(); this.monsters = []; this.encounter.clear();
+    for (let type = 0; type < MONSTER_TYPES.length; type++) {
+      const def = MONSTER_TYPES[type];
+      const nestActive = this.nests.some(n => n.hp > 0 && def.homes.includes(n.location));
+      const count = Math.min(4, Math.ceil(threat * this.config.spawnMultiplier) + (nestActive ? 1 : 0));
+      for (let i = 0; i < count; i++) {
+        const hp = Math.round(def.hp * threat);
+        this.monsters.push({ id: randomUUID(), type, location: def.homes[randomInt(def.homes.length)] as Location, hp, maxHp: hp, damage: Math.round(def.damage * threat), detectionRange: threat >= 1.6 ? 1 : 0, detection: Math.min(.85, def.detection * threat), aggression: def.aggression, nextMoveAt: Date.now() + 30_000 / threat });
+      }
     }
-    for (const { p, s } of actions.filter(a => a.s.kind === "INVESTIGATE")) {
-      const target = actions.find(a => a.p.userId === s.target);
-      const suspect = target ?? actions.find(a => a.s.kind === "SABOTAGE");
-      const evidence = target
-        ? `${target.p.username} ${["SABOTAGE", "STEAL"].includes(target.s.kind) ? "เคลื่อนไหวใกล้ทรัพย์สินของคนอื่น" : "ไม่พบร่องรอยผิดปกติชัดเจน"}`
-        : s.target === "event" ? `สภาพเกาะก่อนเหตุการณ์: ${this.weather}`
-        : s.target === "boat" ? (suspect ? "พบรอยเครื่องมือใหม่ใกล้เรือ" : "ไม่พบรอยเครื่องมือใหม่ใกล้เรือ")
-        : `มีคนอยู่ที่${NAMES[s.target!]} ${this.living().filter(p => p.location === s.target).length} คน`;
-      p.evidence.push(`คืนวันที่ ${this.day}: ${evidence} · ความเชื่อมั่นปานกลาง (ไม่ใช่หลักฐานยืนยันผู้กระทำ)`);
-      this.log(`${p.username} สืบสวน ${this.survivors.get(s.target!)?.username ?? NAMES[s.target!] ?? s.target}`, true);
+  }
+  private detect(p: Survivor) {
+    if (!p.alive || this.encounter.has(p.userId) || (this.avoided.get(p.userId) ?? 0) > Date.now()) return;
+    const monster = this.monsters.find(m => m.hp > 0 && m.location === p.location);
+    if (!monster) return;
+    const group = this.living().filter(t => t.location === p.location).length;
+    if (randomInt(100) < monster.detection * (this.phase === "NIGHT" ? 140 : 100) / Math.sqrt(group)) this.encounter.set(p.userId, monster.id);
+  }
+  private worldTick() {
+    if (this.finished || !["DAY", "NIGHT", "ESCAPE"].includes(this.phase)) return;
+    for (const m of this.monsters) if (m.hp > 0 && Date.now() >= m.nextMoveAt) {
+      const choices = neighbours(m.location).filter(n => MONSTER_TYPES[m.type].homes.includes(n.location));
+      const occupied = m.detectionRange > 0 ? choices.find(n => this.living().some(p => p.location === n.location)) : undefined;
+      if (choices.length) m.location = occupied?.location ?? choices[randomInt(choices.length)].location;
+      m.nextMoveAt = Date.now() + Math.max(10_000, 40_000 / this.threat());
     }
-    this.runEvent(); this.checkDeaths(); if (!this.finished) this.schedule("EVENT", 3000);
+    for (const p of this.living()) {
+      if (p.escape === "BOARD") continue;
+      p.hunger = Math.max(0, p.hunger - 1); p.thirst = Math.max(0, p.thirst - 2);
+      if (p.hunger <= 10 || p.thirst <= 10) p.health -= 2;
+      const encounter = this.monsters.find(m => m.id === this.encounter.get(p.userId) && m.hp > 0 && m.location === p.location);
+      if (!encounter) this.encounter.delete(p.userId);
+      else if (randomInt(100) < encounter.aggression * 100) p.health -= encounter.damage;
+      this.detect(p);
+    }
+    this.checkDeaths();
+  }
+  private handleEncounter(p: Survivor, a: Record<string, unknown>) {
+    const m = this.monsters.find(m => m.id === this.encounter.get(p.userId) && m.hp > 0 && m.location === p.location);
+    if (!m) fail("ไม่มีมอนสเตอร์เผชิญหน้าคุณ");
+    const monster = m!; const group = this.living().filter(t => t.location === p.location).length;
+    let passed = false;
+    if (a.choice === "SNEAK") { this.energy(p, 15); passed = randomInt(100) < Math.min(90, 55 + group * 10); if (!passed) p.health -= monster.damage; }
+    else if (a.choice === "DISTRACT") { this.spend(p, "food", 1); passed = true; }
+    else if (a.choice === "TORCH") { this.spend(p, "torch", 1); passed = monster.type !== 3; if (!passed) p.evidence.push("อสูรแมกมาไม่กลัวไฟ"); }
+    else if (a.choice === "FIGHT") { this.energy(p, 15); monster.hp = Math.max(0, monster.hp - 20 - group * 5); if (monster.hp > 0) p.health -= monster.damage; else { passed = true; this.log(`กลุ่มผู้เล่นปราบ${MONSTER_TYPES[monster.type].name}ที่${NAMES[p.location]}`); } }
+    else fail("เลือกหลบ ยั่วด้วยอาหาร ใช้คบไฟ หรือต่อสู้");
+    if (passed) { this.encounter.delete(p.userId); this.avoided.set(p.userId, Date.now() + 45_000); }
+    this.checkDeaths();
+  }
+  private spyAction(p: Survivor, type: string, a: Record<string, unknown>) {
+    if (this.phase !== "NIGHT" || p.role !== "spy" || p.nightUsed) fail("Spy ลงมือได้ 1 ครั้งต่อคืนเท่านั้น");
+    if (this.encounter.has(p.userId)) fail("ต้องรับมือมอนสเตอร์ก่อน");
+    if (type === "island:sabotage") {
+      if (p.location !== "beach") fail("ต้องอยู่ที่เรือบนชายหาด");
+      if (!member(Object.keys(BOAT_COST), a.component) || this.boat[a.component as Component] < 1) fail("เลือกส่วนเรือที่สร้างแล้ว");
+      this.boat[a.component as Component] = Math.max(0, this.boat[a.component as Component] - 2); p.sabotages++;
+      this.log("เรือถูกก่อวินาศกรรมในคืนนี้ ผู้ลงมือยังเป็นปริศนา");
+      this.log(`${p.username} ทำลายส่วน${NAMES[a.component as string]}ของเรือ`, true);
+    } else {
+      const target = this.target(a.target, p.userId);
+      if (target.location !== p.location) fail("เป้าหมายต้องอยู่ที่เดียวกัน");
+      for (const observer of this.living()) if (observer.userId !== p.userId && observer.userId !== target.userId) {
+        const close = observer.location === p.location, adjacent = neighbours(observer.location).some(n => n.location === p.location);
+        observer.evidence.push(`คืนวันที่ ${this.day}: ${close ? "🚨 มีผู้เล่นถูกฆ่าใกล้ตัวคุณ! 👁️ คุณเห็นเงาคนลงมือ แต่ระบุตัวไม่ได้" : adjacent ? "🚨 มีผู้เล่นถูกฆ่าในบริเวณใกล้เคียง" : "⚠️ มีผู้เล่นถูกฆ่าที่ใดที่หนึ่งบนเกาะ"}`);
+      }
+      this.log(`${p.username} ลอบฆ่า ${target.username} ที่${NAMES[p.location]}`, true);
+      this.kill(target, true);
+    }
+    p.nightUsed = true;
+    if (!this.living().length) this.end();
+  }
+  private castVote(p: Survivor, a: Record<string, unknown>) {
+    if (this.phase !== "VOTE" || this.votes.has(p.userId)) fail("โหวตได้ 1 ครั้งในช่วงโหวต");
+    const t = this.target(a.target, p.userId); this.votes.set(p.userId, t.userId);
+    if (this.living(true).every(p => this.votes.has(p.userId))) this.resolveVote();
+  }
+  private resolveVote() {
+    const counts: Record<string, number> = {};
+    for (const [id, target] of this.votes) if (this.survivors.get(id)?.alive && this.survivors.get(target)?.alive) counts[target] = (counts[target] ?? 0) + 1;
+    const top = Math.max(0, ...Object.values(counts)); const leaders = Object.keys(counts).filter(id => counts[id] === top);
+    const tied = leaders.length > 1;
+    this.voteResult = { counts, eliminated: null, tied };
+    if (tied && this.config.tieRule === "revote" && !this.revoted) {
+      this.revoted = true; this.votes.clear(); this.log("คะแนนเสมอ เปิดลงคะแนนใหม่อีก 1 ครั้ง"); this.schedule("VOTE", this.config.voteSeconds * 1000); return;
+    }
+    const eliminated = leaders.length === 1 ? leaders[0] : tied && this.config.tieRule === "random" ? leaders[randomInt(leaders.length)] : null;
+    if (eliminated) {
+      const p = this.survivors.get(eliminated)!; this.kill(p, false); this.voteResult.eliminated = eliminated;
+      this.log(`${p.username} ถูกโหวตออกจากเกม`);
+      if (this.config.revealEliminatedRoles) { p.eliminatedRole = p.role; this.voteResult.role = p.role; this.log(`บทบาทของ ${p.username}: ${p.role === "spy" ? "Spy" : "Survivor"}`); }
+    } else this.log("ไม่มีผู้เล่นถูกกำจัดในรอบโหวตนี้");
+    // Eliminating the last spy is deliberately NOT a victory condition.
+    if (!this.living().length) this.end(); else this.schedule("VOTE_RESULT", 5000);
+  }
+  private maybeEscape() {
+    if (this.phase !== "DAY") return;
+    if (this.missions.every(m => m.progress >= m.quantity) && Object.keys(BOAT_COST).every(k => this.boat[k as Component] >= BOAT_COST[k as Component])) {
+      this.expireRequests(); this.log("ภารกิจและเรือพร้อมแล้ว เดินทางตามเส้นทางไปชายหาดเพื่อขึ้นเรือ"); this.schedule("ESCAPE", this.config.escapeSeconds * 1000);
+    }
   }
   private runEvent() {
     this.weather = ["พายุ", "งูกัด", "ไฟไหม้", "น้ำขึ้นสูง", "เถ้าภูเขาไฟ"][randomInt(5)];
@@ -311,11 +453,12 @@ export class IslandBetrayalGame extends BaseGame {
   }
   private chooseEscape(p: Survivor, a: Record<string, unknown>) {
     if (this.phase !== "ESCAPE") fail("ยังไม่ถึงเวลาหนี");
+    if (p.location !== "beach" || this.encounter.has(p.userId)) fail("ต้องอยู่ที่ชายหาดและไม่มีมอนสเตอร์ขวางจึงขึ้นเรือได้");
     if (!member(["BOARD", "STAY", "RESCUE"] as const, a.choice)) fail("เลือกขึ้นเรือ อยู่ต่อ หรือช่วยขึ้นเรือ");
     if (a.choice === "RESCUE") {
       if (p.escape !== "BOARD") fail("ต้องขึ้นเรือก่อนจึงจะช่วยคนอื่นได้");
       const t = this.target(a.target, p.userId);
-      if (t.escape) fail("เป้าหมายเลือกแล้ว");
+      if (t.escape || t.location !== "beach") fail("เป้าหมายต้องอยู่ที่ชายหาดและยังไม่เลือก");
       if (this.seatOrder.length >= this.seats) fail("เรือเต็มแล้ว");
       this.spend(p, "rope", 1); t.escape = "BOARD"; this.seatOrder.push(t.userId);
       if (!p.helped.includes(t.userId)) p.helped.push(t.userId);
@@ -327,24 +470,28 @@ export class IslandBetrayalGame extends BaseGame {
       if (p.escape === "BOARD") this.seatOrder.push(p.userId);
       this.log(`${p.username} ${p.escape === "BOARD" ? "ขึ้นเรือแล้ว" : "เลือกอยู่บนเกาะ"}`);
     }
-    if (this.living(true).every(p => p.escape)) this.finishEscape();
+    if (this.living().every(p => p.escape)) this.finishEscape();
   }
   private finishEscape() {
-    for (const p of this.living()) p.escaped = p.escape === "BOARD";
+    for (const p of this.living()) p.escaped = p.escape === "BOARD" && p.location === "beach";
     this.log("เรือออกจากเกาะ ผู้ที่ไม่เลือกภายในเวลาถือว่าอยู่ต่อ"); this.end();
   }
   removePlayer(userId: string): void {
     const p = this.survivors.get(userId); if (!p || this.finished) return;
     p.connected = false; // Keep a locked decision immutable if this player reconnects during the same night.
     this.offers.filter(o => o.from === userId || o.to === userId).forEach(o => { if (o.status === "pending") o.status = "expired"; });
-    if (this.phase === "SECRET" && this.living(true).every(p => p.secret)) this.resolveSecrets();
-    if (this.phase === "ESCAPE" && this.living(true).every(p => p.escape)) this.finishEscape();
+    if (this.phase === "VOTE" && this.living(true).every(p => this.votes.has(p.userId))) this.resolveVote();
+
     this.changed();
   }
   reconnectPlayer(userId: string): void { const p = this.survivors.get(userId); if (!p) fail("คุณไม่ได้อยู่ในเกมนี้"); p!.connected = true; this.changed(); }
   getPublicState() {
     return clone({ phase: this.phase, day: this.day, phaseEndsAt: this.phaseEndsAt, weather: this.weather,
-      players: [...this.survivors.values()].map(({ userId, username, alive, connected, location, escape }) => ({ userId, username, alive, connected, location, escape })),
+      players: [...this.survivors.values()].map(p => ({ userId: p.userId, username: p.username, alive: this.hiddenDeaths.has(p.userId) ? true : p.alive, connected: p.connected, location: this.phase === "NIGHT" ? p.nightLocation : p.location, escape: p.escape, ...(p.eliminatedRole ? { revealedRole: p.eliminatedRole } : {}) })),
+      world: WORLD, routes: ROUTES.map(r => ({ ...r, cost: Math.ceil(r.cost * this.config.movementMultiplier) })),
+      drops: this.drops.filter(d => !d.hiddenUntilMorning && d.expiresDay > this.day), monsters: this.monsters.map(m => ({ ...m, name: MONSTER_TYPES[m.type].name })), nests: this.nests, missions: this.missions,
+      voteResult: this.voteResult, votedUserIds: [...this.votes.keys()],
+      rules: { maxDays: this.config.maxDays, cycleSeconds: this.config.cycleSeconds, tieRule: this.config.tieRule, spyVictory: this.config.spyVictory, survivorEscape: this.config.survivorEscape, minimumEscape: this.config.minimumEscape },
       boat: this.boat, boatCost: BOAT_COST, seats: this.seats, occupiedSeats: this.seatOrder.length,
       ground: this.ground, logs: this.logs.slice(-100), chat: this.chat, requests: this.requests.slice(-60),
       ...(this.finished ? { result: this.result } : {}),
@@ -352,8 +499,14 @@ export class IslandBetrayalGame extends BaseGame {
   }
   getPrivateState(userId: string) {
     const p = this.survivors.get(userId); if (!p) return null;
-    return clone({ health: p.health, energy: p.energy, hunger: p.hunger, thirst: p.thirst, inventory: p.inventory,
-      objective: OBJECTIVES[p.objective], secret: p.secret, evidence: p.evidence.slice(-60),
+    return clone({ role: p.role, myLocation: p.location, alive: p.alive, nightUsed: p.nightUsed, capacity: this.capacity(p), bagLevel: p.bagLevel + 1, nextCapacity: this.config.bagCapacities[p.bagLevel + 1] ?? null,
+      usedCapacity: this.used(p), restAt: p.restAt, votedFor: this.votes.get(userId) ?? null,
+      encounter: this.monsters.find(m => m.id === this.encounter.get(userId)) ?? null,
+      localDrops: this.drops.filter(d => d.location === p.location && d.expiresDay > this.day),
+      nearbyPlayers: this.living(true).filter(t => t.location === p.location && t.userId !== userId).map(t => ({ userId: t.userId, username: t.username })),
+      allies: p.role === "spy" && this.config.spiesKnowEachOther ? [...this.survivors.values()].filter(t => t.role === "spy" && t.userId !== userId).map(t => ({ userId: t.userId, username: t.username })) : [],
+      health: p.health, energy: p.energy, hunger: p.hunger, thirst: p.thirst, inventory: p.inventory,
+      objective: OBJECTIVES[p.objective], evidence: p.evidence.slice(-60),
       offers: this.offers.filter(o => o.from === userId || o.to === userId).slice(-30),
     });
   }
@@ -361,13 +514,20 @@ export class IslandBetrayalGame extends BaseGame {
     if (this.result) return clone(this.result);
     this.finished = true; this.phase = "FINISHED"; this.phaseEndsAt = null;
     if (this.timer) clearTimeout(this.timer); this.timer = null;
+    if (this.worldTimer) clearInterval(this.worldTimer); this.worldTimer = null;
+    this.hiddenDeaths.clear();
     const players = [...this.survivors.values()].map(p => {
       const completed = [p.escaped && p.inventory.valuable >= 2, p.helped.length >= 3, p.contributed === 0, p.sabotages >= 2][p.objective];
-      return { userId: p.userId, username: p.username, alive: p.alive, escaped: p.escaped, objective: OBJECTIVES[p.objective], completed };
+      return { userId: p.userId, username: p.username, role: p.role, alive: p.alive, escaped: p.escaped, objective: OBJECTIVES[p.objective], completed };
     });
+    const survivors = players.filter(p => p.role === "survivor");
+    const escaped = survivors.filter(p => p.escaped).length;
+    const required = this.config.survivorEscape === "all" ? Math.max(1, survivors.filter(p => p.alive).length) : this.config.survivorEscape === "minimum" ? this.config.minimumEscape : 1;
+    const survivorWin = escaped >= required;
+    const spyWin = this.config.spyVictory === "survive_to_end" ? players.some(p => p.role === "spy" && p.alive) : !survivorWin;
     this.result = { summary: `Island Betrayal จบวันที่ ${this.day} · หนีสำเร็จ ${players.filter(p => p.escaped).length} คน`,
-      winnerUserIds: players.filter(p => p.escaped).map(p => p.userId),
-      details: { players, timeline: this.truth, scores: Object.fromEntries(players.map(p => [p.userId, (p.escaped ? 1 : 0) + (p.completed ? 1 : 0)])) },
+      winnerUserIds: players.filter(p => p.role === "spy" ? spyWin : survivorWin && p.escaped).map(p => p.userId),
+      details: { survivorWin, spyWin, missions: this.missions, players, timeline: this.truth, scores: Object.fromEntries(players.map(p => [p.userId, (p.escaped ? 1 : 0) + (p.completed ? 1 : 0)])) },
     };
     this.changed(); this.emit(GAME_ENGINE_EVENTS.ENDED); return clone(this.result);
   }

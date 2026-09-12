@@ -1,0 +1,17 @@
+import type { RoleConfig, RoleDefinition } from "./types";
+export function RoleConfiguration({ definitions, value, onChange, playerCount, disabled = false }: { definitions: RoleDefinition[]; value: RoleConfig; onChange: (v: RoleConfig) => void; playerCount: number; disabled?: boolean }) {
+  if (!definitions.length) return null;
+  const counts: Record<string, number> = {};
+  for (const d of definitions.filter(d => !d.autoFill)) {
+    const c = value[d.id] ?? { mode: "default" };
+    let count = d.min ?? 0;
+    if (c.mode === "exact") count = c.count ?? d.min ?? 0;
+    else if (c.mode === "per_players") count = Math.max(d.min ?? 0, Math.floor(playerCount / (c.perPlayers ?? 4)));
+    else if (c.mode === "percentage") count = Math.max(d.min ?? 0, Math.floor(playerCount * (c.percentage ?? 20) / 100));
+    else for (const t of d.thresholds ?? []) if (playerCount >= t.players) count = t.count;
+    counts[d.id] = c.mode === "exact" ? count : Math.min(count, c.maxCount ?? d.defaultMax ?? d.max ?? playerCount);
+  }
+  const remaining = playerCount - Object.values(counts).reduce((a, b) => a + b, 0);
+  const cls = "rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm text-white";
+  return <fieldset disabled={disabled} className="space-y-3 rounded-xl border border-slate-700 p-4 disabled:opacity-70"><legend className="px-2 font-medium">ตั้งค่าบทบาท</legend><p className="text-xs text-slate-400">คำนวณจากผู้เล่น {playerCount} คน · สุ่มบทบาทโดยเซิร์ฟเวอร์เมื่อเริ่มเกม</p>{definitions.map(d => d.autoFill ? <p key={d.id} className="text-sm">{d.name}: {Math.max(0, remaining)} คน (เติมส่วนที่เหลือ)</p> : <div key={d.id} className="space-y-2"><div className="flex justify-between text-sm"><span>{d.name}</span><span>{counts[d.id]} คน</span></div><select aria-label={`วิธีคำนวณ ${d.name}`} className={`${cls} w-full`} value={value[d.id]?.mode ?? "default"} onChange={e => onChange({ ...value, [d.id]: { mode: e.target.value as RoleConfig[string]["mode"], count: d.min ?? 1, perPlayers: 4, percentage: 20, maxCount: d.defaultMax ?? d.max } })}><option value="default">ตามจำนวนผู้เล่น (ค่าแนะนำ)</option><option value="exact">กำหนดจำนวนแน่นอน</option><option value="per_players">ตามผู้เล่นต่อบทบาท</option><option value="percentage">ตามเปอร์เซ็นต์</option></select>{value[d.id]?.mode !== "default" && value[d.id] && <label className="block text-xs text-slate-400">{value[d.id].mode === "exact" ? "จำนวน" : value[d.id].mode === "per_players" ? "ผู้เล่นต่อบทบาท 1 คน" : "เปอร์เซ็นต์"}<input type="number" className={`${cls} ml-2 w-24`} min={value[d.id].mode === "per_players" ? 2 : d.min ?? 1} max={value[d.id].mode === "percentage" ? 90 : value[d.id].mode === "per_players" ? 20 : d.max ?? 19} value={value[d.id][value[d.id].mode === "exact" ? "count" : value[d.id].mode === "per_players" ? "perPlayers" : "percentage"] ?? 1} onChange={e => onChange({ ...value, [d.id]: { ...value[d.id], [value[d.id].mode === "exact" ? "count" : value[d.id].mode === "per_players" ? "perPlayers" : "percentage"]: Number(e.target.value) } })}/></label>}{value[d.id]?.mode !== "exact" && <label className="block text-xs text-slate-400">จำนวนสูงสุด<input type="number" min={d.min ?? 1} max={d.max ?? 19} className={`${cls} ml-2 w-24`} value={value[d.id]?.maxCount ?? d.defaultMax ?? d.max} onChange={e => onChange({ ...value, [d.id]: { ...(value[d.id] ?? { mode: "default" }), maxCount: Number(e.target.value) } })}/></label>}</div>)}{remaining < 1 && <p role="alert" className="text-sm text-red-300">ต้องมีบทบาทหลักเหลืออย่างน้อย 1 คน จึงจะเริ่มเกมได้</p>}</fieldset>;
+}
