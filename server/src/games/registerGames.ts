@@ -4,6 +4,5 @@
 import "./spyfall";
 import "./wordhead";
 import "./ito";
-import "./island_betrayal";
 
 export {};

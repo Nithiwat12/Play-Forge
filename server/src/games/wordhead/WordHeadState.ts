@@ -133,6 +133,7 @@ export interface UpdateNotesPayload {
 // not supported yet (see gameSocket's Spyfall-specific locationCategory
 // coupling in the continue-vote layer) - only RANDOM and FIXED.
 export interface WordHeadConfig {
+  playMode?: "TABLE" | "ONLINE";
   categoryMode?: "RANDOM" | "FIXED";
   category?: string;
 }

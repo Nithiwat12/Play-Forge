@@ -36,6 +36,7 @@ export function WordHeadGame({
   scoreboard,
 }: WordHeadGameProps) {
   const navigate = useNavigate();
+  const online = room.settings?.playMode === "ONLINE";
   const [isReplaying, setIsReplaying] = useState(false);
   async function handlePlayAgain() {
     if (isReplaying) return;
@@ -258,8 +259,7 @@ export function WordHeadGame({
           <Card className="border-amber-700">
             <h2 className="text-sm font-semibold text-slate-300">ตาของคุณ - ทายคำของตัวเอง</h2>
             <p className="mt-1 text-xs text-slate-500">
-              คนอื่นในห้องเห็นคำของคุณและกำลังช่วยใบ้อยู่ - ฟังคำใบ้แล้วตอบได้เลย จะพูดออกเสียงหรือพิมพ์ก็ได้
-              พิมพ์แล้วกด “ทายคำ” หรือพูดแล้วกด “ตอบแล้ว” รอคนใบ้ทุกคนโหวตครบ ตัดสินด้วยเสียงส่วนมาก
+              {online ? "ออนไลน์: อ่านคำใบ้ในบันทึก แล้วพิมพ์คำตอบกดทายคำ ทุกคนโหวตตัดสินคำตอบ" : "นั่งด้วยกัน: ฟังคำใบ้ พูดคำตอบแล้วกดตอบแล้ว หรือพิมพ์ก็ได้ รอคนใบ้ทุกคนโหวต ตัดสินด้วยเสียงส่วนมาก"}
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Input
@@ -278,9 +278,9 @@ export function WordHeadGame({
               </Button>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
-              <Button onClick={handleAnswer} disabled={Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
+              {!online && <Button onClick={handleAnswer} disabled={Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
                 ตอบแล้ว
-              </Button>
+              </Button>}
               <Button variant="ghost" onClick={() => setShowPassConfirm(true)} disabled={Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
                 ยอมแพ้ / ข้ามตานี้
               </Button>
@@ -298,6 +298,7 @@ export function WordHeadGame({
         {!isFinished && publicState.phase === "TURN" && !isMyTurn && currentTurnUsername && (
           <>
             <HintPanel
+              online={online}
               currentWord={privateState.currentWord}
               currentTurnUsername={currentTurnUsername}
               hintCooldownEndsAt={privateState.hintCooldownEndsAt}

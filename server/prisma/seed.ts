@@ -7,7 +7,6 @@ const prisma = new PrismaClient();
 // GameRegistry - the platform code never needs to change.
 const games = [
   { name: "ito — ใจตรงกันไหม?", slug: "ito", description: "ร่วมมือใบ้เลขลับและเปิดไพ่จากน้อยไปมาก เลือกนั่งคุยกันหรือออนไลน์พิมพ์คำใบ้ได้", minPlayers: 2, maxPlayers: 8, isActive: true },
-  { name: "Island Betrayal", slug: "island_betrayal", description: "Trust no one. Survive. Build the boat. Escape. เกาะใหญ่ มอนสเตอร์ และ Spy ลับสำหรับ 4–15 คน", minPlayers: 4, maxPlayers: 15, isActive: true },
   {
     name: "Spy Hunt",
     slug: "spyfall",

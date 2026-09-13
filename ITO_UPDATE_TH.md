@@ -55,7 +55,7 @@ npm run dev:client
 - เพิ่มหน้าเกม responsive, ตัวเลือกโหมด/ด่าน/เวลา, วิธีเล่น, ไอคอน และผลทีมในหน้าประวัติ
 - ลงทะเบียนเกมทั้ง client/server เพิ่ม seed และ migration
 - เพิ่ม unit และ Socket.IO integration tests: `npm run test:ito --prefix server`
-- ไม่แก้กติกา Spyfall, WordHead หรือ Island Betrayal
+- อัปเดตล่าสุด: ลบ Island Betrayal และแยกโหมด Spyfall/WordHead แล้ว ดู ALL_MODES_UPDATE_TH.md
 
 ## ขอบเขตการตรวจสอบ
 - TypeScript client และ server ผ่าน

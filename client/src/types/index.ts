@@ -33,8 +33,8 @@ export interface RoomPlayer {
 }
 
 export interface RoomSettings {
+  playMode?: "TABLE" | "ONLINE";
   roleConfig?: RoleConfig;
-  island?: Record<string, unknown>;
   ito?: { mode: "TABLE" | "ONLINE"; stages: number; roundSeconds: number };
   discussionSeconds?: number;
   numberOfRounds?: number;

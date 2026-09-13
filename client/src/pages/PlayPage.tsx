@@ -361,6 +361,7 @@ export function PlayPage() {
           ออกจากเกม
         </Button>
       </div>
+      <p className="mx-auto max-w-4xl px-4 py-3 text-sm text-teal-300">{(room.settings?.playMode ?? room.settings?.ito?.mode ?? "TABLE") === "ONLINE" ? "⌨ โหมดออนไลน์ — ใช้ข้อความและปุ่มในเกม ไม่ต้องพูด" : "💬 โหมดนั่งด้วยกัน — พูดคุยแล้วกดยืนยันได้"}</p>
       <GameComponent
         room={room}
         publicState={publicState}

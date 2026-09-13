@@ -180,6 +180,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   // as their own personal cooldown allows - there's no shared/global
   // cooldown, each player tracks their own.
   private handleHint(userId: string, payload: { hintText?: string | null }): void {
+    if (this.config.playMode === "ONLINE" && !payload.hintText?.trim()) throw new GameActionError("โหมดออนไลน์ต้องพิมพ์คำใบ้");
     if (this.phase !== "TURN" || !this.currentTurnUserId) {
       throw new GameActionError("ตอนนี้ยังไม่มีใครขึ้นเล่น");
     }
@@ -205,6 +206,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
 
   // Submit a typed or spoken answer for a complete majority ballot.
   private handleGuess(userId: string, guessText: string): void {
+    if (this.config.playMode === "ONLINE" && !guessText.trim()) throw new GameActionError("โหมดออนไลน์ต้องพิมพ์คำตอบ");
     if (this.phase !== "TURN" || userId !== this.currentTurnUserId) {
       throw new GameActionError("ยังไม่ถึงตาคุณ");
     }
@@ -458,7 +460,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       // (see its typeof-guarded field reads) - omitting Spyfall-shaped keys
       // like winner/spyUserId/spyUsername/reason so their harmless fallback
       // defaults simply never surface for this game.
-      details: result as unknown as Record<string, unknown>,
+      details: { ...result, playMode: this.config.playMode ?? "TABLE" } as unknown as Record<string, unknown>,
     };
   }
 }

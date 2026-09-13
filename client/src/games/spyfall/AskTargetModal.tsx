@@ -3,6 +3,9 @@ import { Button } from "../../components/common/Button";
 import type { SpyfallPublicPlayer } from "./types";
 
 interface AskTargetModalProps {
+  online?: boolean;
+  questionText: string;
+  onQuestionChange: (text: string) => void;
   players: SpyfallPublicPlayer[];
   selfUserId?: string;
   blockedUserId?: string | null;
@@ -12,7 +15,7 @@ interface AskTargetModalProps {
   onClose: () => void;
 }
 
-export function AskTargetModal({ players, selfUserId, blockedUserId, isSubmitting, error, onSelect, onClose }: AskTargetModalProps) {
+export function AskTargetModal({ online, questionText, onQuestionChange, players, selfUserId, blockedUserId, isSubmitting, error, onSelect, onClose }: AskTargetModalProps) {
   const askable = players.filter((p) => p.userId !== selfUserId && p.userId !== blockedUserId && p.connected);
 
   return (
@@ -24,6 +27,7 @@ export function AskTargetModal({ players, selfUserId, blockedUserId, isSubmittin
           เลือกชื่อเพื่อส่งคำถามทันที ห้ามถามย้อนคนที่เพิ่งถามคุณ
         </p>
 
+        <input aria-label="คำถามในหน้าต่างเลือกผู้เล่น" value={questionText} onChange={e => onQuestionChange(e.target.value)} maxLength={300} placeholder={online ? "พิมพ์คำถามก่อนเลือกผู้เล่น" : "พูดคำถามได้ หรือพิมพ์ไว้ที่นี่"} className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-900 p-3 text-white"/>
         <div className="mt-4 flex flex-col gap-2">
           {askable.length === 0 && (
             <p className="text-sm text-slate-500">ยังไม่มีคนที่ถามได้ออนไลน์ ต้องผ่านคนอื่นก่อนจึงจะถามย้อนกลับได้</p>
@@ -32,7 +36,7 @@ export function AskTargetModal({ players, selfUserId, blockedUserId, isSubmittin
             <button
               key={p.userId}
               type="button"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (online && !questionText.trim())}
               onClick={() => onSelect(p.userId)}
               className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2.5 text-left text-sm text-slate-100 transition hover:border-brand-600 hover:bg-brand-900/40"
             >

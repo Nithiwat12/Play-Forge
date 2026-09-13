@@ -51,6 +51,7 @@ const MAX_DISCUSSION_SECONDS = 20 * 60;
 // CreateRoom page). Everything here is optional - a room with no settings
 // gets the classic defaults.
 export interface SpyfallConfig {
+  playMode?: "TABLE" | "ONLINE";
   discussionSeconds?: number;
   // How the location for each round gets picked - see locations.ts's
   // SPYFALL_CATEGORIES. Undefined/"RANDOM" = pick from every location, no
@@ -285,6 +286,10 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
       throw new GameActionError("ตอนนี้ไม่ใช่ช่วงถาม-ตอบ");
     }
     const isAnswerer = this.pendingQuestion?.toUserId === fromUserId;
+    if (this.config.playMode === "ONLINE") {
+      if (!payload.text?.trim()) throw new GameActionError("โหมดออนไลน์ต้องพิมพ์คำถาม");
+      if (isAnswerer) throw new GameActionError("กรุณาส่งคำตอบก่อนถามคนถัดไป");
+    }
     if (fromUserId !== this.askerUserId && !isAnswerer) {
       throw new GameActionError("ยังไม่ถึงตาคุณจะถาม");
     }
@@ -330,6 +335,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
   // answer - doing so closes out the question and hands them the turn to
   // ask next. `text` is optional, same reasoning as handleQuestion.
   private handleAnswer(fromUserId: string, payload: { text?: string }): void {
+    if (this.config.playMode === "ONLINE" && !payload.text?.trim()) throw new GameActionError("โหมดออนไลน์ต้องพิมพ์คำตอบ");
     if (this.phase !== "IN_PROGRESS") {
       throw new GameActionError("ตอนนี้ไม่ใช่ช่วงถาม-ตอบ");
     }
@@ -892,7 +898,7 @@ export class SpyfallGame extends BaseGame<SpyfallPublicState, SpyfallPrivateStat
     return {
       summary: result.reason,
       winnerUserIds,
-      details: result as unknown as Record<string, unknown>,
+      details: { ...result, playMode: this.config.playMode ?? "TABLE" } as unknown as Record<string, unknown>,
     };
   }
 }

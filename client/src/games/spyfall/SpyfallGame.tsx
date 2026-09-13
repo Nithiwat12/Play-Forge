@@ -36,6 +36,7 @@ export function SpyfallGame({
   scoreboard,
 }: SpyfallGameProps) {
   const navigate = useNavigate();
+  const online = room.settings?.playMode === "ONLINE";
   const [isReplaying, setIsReplaying] = useState(false);
   async function handlePlayAgain() {
     if (isReplaying) return;
@@ -48,6 +49,8 @@ export function SpyfallGame({
   }
   const [isAskModalOpen, setIsAskModalOpen] = useState(false);
   const [questionText, setQuestionText] = useState("");
+  const [answerText, setAnswerText] = useState("");
+  const [isAnswering, setIsAnswering] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
   const askingRef = useRef(false);
   const alertedQuestionRef = useRef<string | null>(null);
@@ -193,7 +196,7 @@ export function SpyfallGame({
     !isFinished && !isVoting && !isRevealed && publicState.pendingQuestion?.toUserId === selfUserId;
   const isMyAskTurn =
     !isFinished && !isVoting && !isRevealed &&
-    ((publicState.askerUserId === selfUserId && !publicState.pendingQuestion) || isMyQuestionToAnswer);
+    ((publicState.askerUserId === selfUserId && !publicState.pendingQuestion) || (!online && isMyQuestionToAnswer));
 
   useEffect(() => {
     if (!isMyAskTurn) {
@@ -239,6 +242,13 @@ export function SpyfallGame({
       askingRef.current = false;
       setIsAsking(false);
     }
+  }
+
+  async function handleTypedAnswer() {
+    if (!answerText.trim() || isAnswering) return;
+    setIsAnswering(true);
+    try { await runAction(SPYFALL_ACTIONS.ANSWER, { text: answerText.trim() }, () => setAnswerText("")); }
+    finally { setIsAnswering(false); }
   }
 
   async function handleCallVote() {
@@ -403,7 +413,8 @@ export function SpyfallGame({
 
         {!isFinished && !isVoting && !isRevealed && (
           <Card>
-            <h2 className="text-sm font-semibold text-slate-300">ถาม-ตอบ</h2>
+            <h2 className="text-sm font-semibold text-slate-300">ถาม-ตอบ · {online ? "ออนไลน์ (พิมพ์ข้อความ)" : "นั่งด้วยกัน (พูดได้)"}</h2>
+            {online && isMyQuestionToAnswer && <div className="mt-3 rounded-lg border border-teal-800 p-3"><p className="text-sm">คำถามจาก {askerUsername}: {publicState.log.filter(e => e.type === "question").slice(-1)[0]?.text}</p><Input aria-label="คำตอบของคุณ" className="my-3" maxLength={300} value={answerText} onChange={e => setAnswerText(e.target.value)} placeholder="พิมพ์คำตอบก่อนถามคนถัดไป" disabled={isAnswering}/><Button onClick={handleTypedAnswer} disabled={!answerText.trim()} isLoading={isAnswering}>ส่งคำตอบ</Button></div>}
             {isMyAskTurn ? (
               <div className="mt-2">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -423,7 +434,7 @@ export function SpyfallGame({
                   value={questionText}
                   onChange={(e) => setQuestionText(e.target.value)}
                   maxLength={300}
-                  placeholder="พิมพ์คำถามถึงคนถัดไป (ไม่จำเป็น)..."
+                  placeholder={online ? "พิมพ์คำถามถึงคนถัดไป (จำเป็น)" : "คำถาม (ไม่บังคับ — พูดได้)"}
                   className="mt-3 w-full"
                   disabled={isAsking}
                 />
@@ -434,7 +445,7 @@ export function SpyfallGame({
                       {publicState.players
                         .filter((player) => player.connected && player.userId !== selfUserId && player.userId !== publicState.blockedAskTargetUserId)
                         .map((player) => (
-                          <Button key={player.userId} variant="secondary" disabled={isAsking}
+                          <Button key={player.userId} variant="secondary" disabled={isAsking || (online && !questionText.trim())}
                             onClick={() => { void handleAskSubmit(player.userId, questionText); }}>
                             {player.username}
                           </Button>
@@ -625,6 +636,9 @@ export function SpyfallGame({
           blockedUserId={publicState.blockedAskTargetUserId}
           isSubmitting={isAsking}
           error={actionError}
+          online={online}
+          questionText={questionText}
+          onQuestionChange={setQuestionText}
           onSelect={(targetUserId) => { void handleAskSubmit(targetUserId, questionText); }}
           onClose={() => setIsAskModalOpen(false)}
         />

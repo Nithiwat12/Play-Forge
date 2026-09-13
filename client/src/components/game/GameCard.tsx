@@ -9,7 +9,6 @@ import { HowToPlayModal } from "./HowToPlayModal";
 // own entry here; anything unrecognized falls back to the generic mask.
 const GAME_ICONS: Record<string, string> = {
   ito: "🎴",
-  island_betrayal: "🏝️",
   spyfall: "🕵️",
   wordhead: "🧠",
 };

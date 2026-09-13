@@ -4,6 +4,7 @@ import { Button } from "../../components/common/Button";
 import { Input } from "../../components/common/Input";
 
 interface HintPanelProps {
+  online?: boolean;
   currentWord: string | null;
   currentTurnUsername: string;
   hintCooldownEndsAt: number | null;
@@ -23,6 +24,7 @@ interface HintPanelProps {
 // through GuessJudgeModal, which pops up for everyone the moment the up
 // player actually submits a typed guess - see WordHeadGame.tsx.
 export function HintPanel({
+  online,
   currentWord,
   currentTurnUsername,
   hintCooldownEndsAt,
@@ -51,16 +53,17 @@ export function HintPanel({
       <p className="text-xs font-semibold uppercase tracking-wide text-emerald-400">คำของ {currentTurnUsername}</p>
       <h2 className="mt-1 text-2xl font-bold tracking-wide text-white">{currentWord}</h2>
       <p className="mt-1 text-xs text-slate-500">
-        ช่วยใบ้ได้เลย - พูดออกเสียงแล้วกดปุ่มเฉย ๆ ก็ได้ ไม่ต้องพิมพ์ก็ได้ กดได้เรื่อย ๆ แต่คุณจะมีคูลดาวน์ของตัวเอง
+        {online ? "ออนไลน์: พิมพ์คำใบ้แล้วส่ง คนทายจะอ่านได้ในบันทึก ห้ามบอกคำเฉลย" : "นั่งด้วยกัน: พูดคำใบ้แล้วกดให้คำใบ้ได้ ไม่จำเป็นต้องพิมพ์"}
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <Input
           value={hintText}
           onChange={(e) => setHintText(e.target.value)}
-          placeholder="พิมพ์คำใบ้ (ไม่จำเป็น)..."
+          maxLength={200}
+          placeholder={online ? "พิมพ์คำใบ้ (จำเป็น)" : "คำใบ้ (ไม่บังคับ)"}
           className="flex-1"
         />
-        <Button onClick={handleSubmit} disabled={onCooldown} isLoading={isSubmitting}>
+        <Button onClick={handleSubmit} disabled={onCooldown || (online && !hintText.trim())} isLoading={isSubmitting}>
           {onCooldown ? `รอ ${cooldownSecondsLeft} วิ` : "ให้คำใบ้"}
         </Button>
       </div>

@@ -30,7 +30,7 @@ function toPublicGame(game: {
 export const GameService = {
   async listActiveGames(): Promise<PublicGame[]> {
     const games = await prisma.game.findMany({
-      where: { isActive: true },
+      where: { isActive: true, slug: { in: GameRegistry.listRegisteredSlugs() } },
       orderBy: { createdAt: "asc" },
     });
     return games.map(toPublicGame);
@@ -38,7 +38,7 @@ export const GameService = {
 
   async getBySlug(slug: string) {
     const game = await prisma.game.findUnique({ where: { slug } });
-    if (!game) throw ApiError.notFound(`ไม่พบเกม "${slug}"`);
+    if (!game || !game.isActive || !GameRegistry.has(game.slug)) throw ApiError.notFound(`ไม่พบเกม "${slug}"`);
     return game;
   },
 

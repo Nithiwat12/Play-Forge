@@ -268,7 +268,7 @@ export function Lobby() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-sm text-slate-400">{room.game.name}</p>
-              <h1 className="text-xl font-semibold text-white">{room.roomName}</h1>
+              <h1 className="text-xl font-semibold text-white">{room.roomName}</h1><p className="mt-2 text-sm text-teal-300">{(room.settings?.playMode ?? room.settings?.ito?.mode ?? "TABLE") === "ONLINE" ? "⌨ ออนไลน์ — พิมพ์ในเกม ไม่ใช้เสียง" : "💬 นั่งด้วยกัน — พูดคุยและกดยืนยัน"}</p>
             </div>
             <RoomCodeBadge code={room.roomCode} />
           </div>

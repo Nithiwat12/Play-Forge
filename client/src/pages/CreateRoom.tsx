@@ -1,4 +1,3 @@
-import { IslandRoomSettings, islandDefaults } from "../games/island_betrayal/IslandRoomSettings";
 import { RoleConfiguration } from "../components/roles/RoleConfiguration";
 import type { RoleConfig, RoleDefinition } from "../components/roles/types";
 import { useEffect, useState } from "react";
@@ -28,7 +27,6 @@ export function CreateRoom() {
 
   const [roleConfig, setRoleConfig] = useState<RoleConfig>({});
   const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinition[]>([]);
-  const [islandSettings, setIslandSettings] = useState(islandDefaults);
   useEffect(() => { let cancelled = false; api.get<{game: {roleDefinitions?: RoleDefinition[]}}>(`/games/${gameSlug}`).then(r => { if (!cancelled) setRoleDefinitions(r.data.game.roleDefinitions ?? []); }).catch(() => {}); return () => { cancelled = true; }; }, [gameSlug]);
   const [roomName, setRoomName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(8);
@@ -39,10 +37,9 @@ export function CreateRoom() {
   const [numberOfRounds, setNumberOfRounds] = useState(3);
   const [categoryMode, setCategoryMode] = useState<CategoryMode>("RANDOM");
   const isIto = gameSlug === "ito";
-  const [itoMode, setItoMode] = useState<"TABLE" | "ONLINE">("ONLINE");
+  const [playMode, setPlayMode] = useState<"TABLE" | "ONLINE">("ONLINE");
   const [itoStages, setItoStages] = useState(3);
   const [itoMinutes, setItoMinutes] = useState(10);
-  const isIsland = gameSlug === "island_betrayal";
   const isWordHead = gameSlug === "wordhead";
   const isSpyfall = gameSlug === "spyfall";
   const CATEGORIES = isWordHead ? WORDHEAD_CATEGORIES : SPYFALL_CATEGORIES;
@@ -62,7 +59,8 @@ export function CreateRoom() {
         maxPlayers,
         usePassword,
         password: usePassword ? password : undefined,
-        settings: isIto ? { ito: { mode: itoMode, stages: itoStages, roundSeconds: itoMinutes * 60 } } : isIsland ? { roleConfig, island: islandSettings } : {
+        settings: isIto ? { playMode, ito: { mode: playMode, stages: itoStages, roundSeconds: itoMinutes * 60 } } : {
+          playMode,
           ...(roleDefinitions.length ? { roleConfig } : {}),
           ...(discussionMinutes ? { discussionMinutes } : {}),
           ...(limitRounds ? { numberOfRounds } : {}),
@@ -109,14 +107,14 @@ export function CreateRoom() {
               type="number"
               label="จำนวนผู้เล่นสูงสุด"
               required
-              min={isIto ? 2 : isIsland ? 4 : 3}
-              max={isIsland ? 15 : 8}
+              min={isIto ? 2 : 3}
+              max={8}
               value={maxPlayers}
               onChange={(e) => setMaxPlayers(Number(e.target.value))}
             />
+            <fieldset className="space-y-3 rounded-xl border border-teal-800 p-4"><legend>รูปแบบการเล่น</legend><select aria-label="รูปแบบการเล่น" className="w-full rounded-lg bg-slate-900 p-3 text-white" value={playMode} onChange={e => setPlayMode(e.target.value as "TABLE" | "ONLINE")}><option value="TABLE">นั่งด้วยกัน — พูดคุยด้วยเสียง</option><option value="ONLINE">ออนไลน์ — พิมพ์ ไม่ใช้เสียง</option></select><p className="text-xs text-slate-400">ทุกคนใช้บัญชีและอุปกรณ์ของตัวเองเพื่อรักษาข้อมูลลับ โหมดออนไลน์ต้องส่งข้อความถาม ตอบ หรือใบ้ในเกม โหมดนั่งด้วยกันใช้การพูดแล้วกดยืนยันได้</p></fieldset>
             <RoleConfiguration definitions={roleDefinitions} value={roleConfig} onChange={setRoleConfig} playerCount={maxPlayers} />
-            {isIto && <fieldset className="space-y-4 rounded-xl border border-teal-800 p-4"><legend>รูปแบบเล่น ito</legend><label className="block text-sm" htmlFor="itoMode">การสื่อสาร</label><select id="itoMode" className="w-full rounded-lg bg-slate-900 p-3" value={itoMode} onChange={e => setItoMode(e.target.value as "TABLE" | "ONLINE")}><option value="ONLINE">ออนไลน์ — พิมพ์คำใบ้ ไม่ใช้เสียง</option><option value="TABLE">นั่งด้วยกัน — พูดคุยด้วยเสียง</option></select><p className="text-xs text-slate-400">ทั้งสองแบบเข้าห้องด้วยบัญชีและอุปกรณ์ของแต่ละคน เพื่อเก็บเลขเป็นความลับ</p><Input id="itoStages" label="จำนวนด่าน (เพิ่มไพ่คนละใบต่อด่าน)" type="number" min={1} max={3} required value={itoStages} onChange={e => setItoStages(Number(e.target.value))}/><Input id="itoMinutes" label="เวลาต่อด่าน (นาที)" type="number" min={2} max={20} required value={itoMinutes} onChange={e => setItoMinutes(Number(e.target.value))}/></fieldset>}
-            {isIsland && <IslandRoomSettings value={islandSettings} onChange={setIslandSettings} />}
+            {isIto && <fieldset className="space-y-4 rounded-xl border border-teal-800 p-4"><legend>รูปแบบเล่น ito</legend><Input id="itoStages" label="จำนวนด่าน (เพิ่มไพ่คนละใบต่อด่าน)" type="number" min={1} max={3} required value={itoStages} onChange={e => setItoStages(Number(e.target.value))}/><Input id="itoMinutes" label="เวลาต่อด่าน (นาที)" type="number" min={2} max={20} required value={itoMinutes} onChange={e => setItoMinutes(Number(e.target.value))}/></fieldset>}
             {isSpyfall && (
               <Input
                 id="discussionMinutes"
@@ -130,7 +128,7 @@ export function CreateRoom() {
               />
             )}
 
-            {!isIsland && !isIto && <>
+            {!isIto && <>
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input
                 type="checkbox"
@@ -195,7 +193,6 @@ export function CreateRoom() {
             </div>
 
             </>}
-            {isIsland && <p className="rounded-lg bg-slate-900 p-4 text-sm text-slate-300">4–15 คน · กลางวันและกลางคืนยาวเท่ากัน · เกาะใหญ่ มอนสเตอร์ Spy และภารกิจ จบแล้วบันทึกแยกแต่ละเกม</p>}
 
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input

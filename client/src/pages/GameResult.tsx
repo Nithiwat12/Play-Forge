@@ -5,8 +5,6 @@ import { Card } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Spinner } from "../components/common/Spinner";
 import { ScoreboardTable } from "../components/game/ScoreboardTable";
-import { TruthReveal } from "../games/island_betrayal/TruthReveal";
-import type { IslandResult } from "../games/island_betrayal/types";
 import { WordHeadTimeTable } from "../games/wordhead/WordHeadTimeTable";
 import type { WordHeadTimeEntry } from "../games/wordhead/WordHeadTimeTable";
 import { api, extractErrorMessage } from "../services/api";
@@ -134,8 +132,6 @@ export function GameResult() {
           </Card>
         ) : entry.gameSlug === "ito" ? (
           <Card><p className="text-sm text-teal-300">ito · {entry.roomName}</p><h1 className="mt-3 text-2xl font-semibold">{result?.summary ?? "จบเกมแล้ว"}</h1><p className="mt-3">ด่านที่ {details?.level ?? "–"} · หัวใจเหลือ {details?.lives ?? "–"} ดวง</p><p className="mt-2 text-slate-400">{details?.mode === "TABLE" ? "นั่งคุยกัน" : "ออนไลน์พิมพ์คำใบ้"} · ผลทีมร่วมกัน</p><Button className="mt-5" variant="secondary" onClick={() => navigate("/history")}>กลับประวัติ</Button></Card>
-        ) : entry.gameSlug === "island_betrayal" ? (
-          <Card><TruthReveal result={entry.resultData as unknown as IslandResult} /><Button className="mt-6" variant="secondary" onClick={() => navigate("/history")}>กลับไปที่ประวัติเกม</Button></Card>
         ) : isMultiRound ? (
           <>
             <Card>
