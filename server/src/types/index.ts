@@ -44,6 +44,7 @@ export interface PublicRoomPlayer {
 // game's own settings later needs no schema change here.
 export interface RoomSettings {
   playMode?: "TABLE" | "ONLINE";
+  wordSource?: "SYSTEM" | "PLAYERS";
   roleConfig?: RoleConfig;
   ito?: import("../games/ito/config").ItoConfig;
   discussionSeconds?: number;

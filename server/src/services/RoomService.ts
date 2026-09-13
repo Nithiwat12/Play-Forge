@@ -174,6 +174,7 @@ export const RoomService = {
     if (game.slug === "ito") settings = { ito: itoConfigSchema.parse(input.settings?.ito ?? {}) };
     const playMode = input.settings?.playMode ?? (game.slug === "ito" ? settings?.ito?.mode : undefined) ?? "TABLE";
     settings = { ...settings, playMode };
+    if (game.slug === "wordhead") settings.wordSource = input.settings?.wordSource ?? "SYSTEM";
     if (settings.ito) settings.ito = { ...settings.ito, mode: playMode };
     if (definitions.length) settings = { ...settings, roleConfig: input.settings?.roleConfig ?? {} };
 

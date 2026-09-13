@@ -49,6 +49,22 @@ export function WordHeadGame({
   }
   const [showPassConfirm, setShowPassConfirm] = useState(false);
   const [guessText, setGuessText] = useState("");
+  const [submittedDraft, setSubmittedDraft] = useState("");
+  const [submittingWord, setSubmittingWord] = useState(false);
+  const [submissionNow, setSubmissionNow] = useState(Date.now());
+  useEffect(() => {
+    if (publicState.phase !== "SUBMIT_WORDS") return;
+    setSubmittedDraft("");
+    const timer = setInterval(() => setSubmissionNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [publicState.phase]);
+  async function submitOwnWord() {
+    if (submittingWord || !submittedDraft.trim()) return;
+    setSubmittingWord(true); setActionError(null);
+    try { const result = await onAction("wordhead:submitWord", { word: submittedDraft.trim() }); if (!result.ok) setActionError(result.error ?? "ส่งโจทย์ไม่สำเร็จ"); }
+    catch { setActionError("เชื่อมต่อไม่ได้ ลองส่งใหม่"); }
+    finally { setSubmittingWord(false); }
+  }
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const [isGivingHint, setIsGivingHint] = useState(false);
@@ -202,11 +218,12 @@ export function WordHeadGame({
 
   return (
     <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 px-4 py-6 sm:gap-6 sm:px-6 sm:py-10 lg:grid-cols-[2fr_1fr]">
+      {publicState.phase === "SUBMIT_WORDS" && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"><Card className="max-h-[90vh] w-full max-w-lg overflow-y-auto border-teal-700"><div role="dialog" aria-modal="true" aria-labelledby="submit-word-title"><p className="text-xs text-teal-300">ทุกคนเขียนโจทย์ · ส่งเป็นความลับ</p><h2 id="submit-word-title" className="mt-2 text-xl font-semibold">คิดคำให้เพื่อนทาย</h2><p className="my-3 text-sm text-slate-400">คำหรือวลีสั้น ๆ ที่ใบ้ได้ ห้ามใส่ชื่อผู้รับ ระบบจะสุ่มให้คนอื่นและคุณจะไม่ได้คำของตัวเอง ส่งแล้วแก้ไม่ได้</p><p className="mb-3 text-sm text-amber-300">เหลือ {Math.max(0, Math.ceil(((publicState.submissionDeadline ?? submissionNow) - submissionNow) / 1000))} วินาที</p>{privateState.submittedWord ? <p className="rounded-lg bg-teal-950 p-4 text-teal-200">ส่งโจทย์แล้ว รอทุกคนส่งครบ</p> : <form onSubmit={e => { e.preventDefault(); void submitOwnWord(); }}><Input aria-label="โจทย์ลับของคุณ" maxLength={60} autoComplete="off" value={submittedDraft} onChange={e => setSubmittedDraft(e.target.value)} placeholder="เช่น นักโบราณคดี" disabled={submittingWord}/><Button className="mt-3 w-full" type="submit" disabled={!submittedDraft.trim()} isLoading={submittingWord}>ส่งโจทย์ลับ</Button></form>}<p className="mt-4 text-sm">ส่งแล้ว {publicState.submittedUserIds.length}/{publicState.players.length} คน</p><ul className="mt-2 space-y-2 text-sm text-slate-300">{publicState.players.map(p => <li key={p.userId}>{p.username} · {publicState.submittedUserIds.includes(p.userId) ? "ส่งแล้ว ✓" : p.connected ? "กำลังคิดโจทย์…" : "รอกลับเข้าห้อง"}</li>)}</ul>{actionError && <p role="alert" className="mt-3 text-sm text-red-300">{actionError}</p>}<p className="mt-4 text-xs text-slate-500">ยังไม่เริ่มจับเวลาทาย หากส่งไม่ครบภายในเวลาจะยุติรอบนี้</p></div></Card></div>}
       <div className="flex flex-col gap-4 sm:gap-6">
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm text-slate-400">{room.roomName}</p>
-            <h1 className="text-xl font-semibold text-white">{room.game.name}</h1>
+            <h1 className="text-xl font-semibold text-white">{room.game.name}</h1><p className="mt-1 text-xs text-teal-300">{publicState.wordSource === "PLAYERS" ? "โจทย์จากผู้เล่น · ไม่ได้รับคำของตัวเอง" : "โจทย์สุ่มจากระบบ"}</p>
             <p className="mt-1 text-xs text-slate-500">
               {scoreboard?.numberOfRounds && `รอบที่ ${currentRoundNumber} / ${scoreboard.numberOfRounds} · `}
               {categoryLabel && `หมวด ${categoryLabel}`}

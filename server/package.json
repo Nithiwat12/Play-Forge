@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node tests/run-tests.cjs && npm run test:ito && npm run test:modes",
     "test:ito": "node --test tests/ito.test.cjs tests/ito-socket.test.cjs",
-    "test:modes": "node --test tests/play-modes.test.cjs tests/play-modes-socket.test.cjs"
+    "test:modes": "node --test tests/play-modes.test.cjs tests/play-modes-socket.test.cjs tests/authored-socket.test.cjs"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

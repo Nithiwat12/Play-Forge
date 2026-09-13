@@ -6,7 +6,7 @@
 // stopwatch measures how long each player took - LOWER is better here,
 // the opposite of every other game's points convention (see WordHeadResult).
 
-export type WordHeadPhase = "TURN" | "FINISHED";
+export type WordHeadPhase = "SUBMIT_WORDS" | "TURN" | "FINISHED";
 
 export interface WordHeadPublicPlayer {
   userId: string;
@@ -54,6 +54,9 @@ export interface WordHeadResult {
 }
 
 export interface WordHeadPublicState {
+  wordSource: "SYSTEM" | "PLAYERS";
+  submittedUserIds: string[];
+  submissionDeadline: number | null;
   phase: WordHeadPhase;
   players: WordHeadPublicPlayer[];
   turnOrder: string[];
@@ -67,6 +70,7 @@ export interface WordHeadPublicState {
 }
 
 export interface WordHeadPrivateState {
+  submittedWord: string | null;
   currentWord: string | null;
   hintCooldownEndsAt: number | null;
   notes: string;

@@ -49,6 +49,10 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   readonly slug = "wordhead";
 
   private config: WordHeadConfig;
+  private submissions = new Map<string, string>();
+  private assignedWords = new Map<string, string>();
+  private submissionDeadline: number | null = null;
+  private submissionTimer: ReturnType<typeof setTimeout> | null = null;
   private wordCategory: string | null = null;
   private remainingWords: WordHeadWord[] = [];
   private fullWordPool: WordHeadWord[] = [];
@@ -97,7 +101,16 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
     this.currentTurnIndex = -1;
 
     this.started = true;
-    this.advanceTurn();
+    if (this.config.wordSource === "PLAYERS") {
+      this.phase = "SUBMIT_WORDS";
+      this.submissionDeadline = Date.now() + 180000;
+      this.submissionTimer = setTimeout(() => this.concludeRound("หมดเวลาส่งโจทย์ ยังส่งไม่ครบทุกคน กรุณาเริ่มใหม่"), 180000);
+      this.submissionTimer.unref?.();
+      this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
+    } else {
+      for (const id of this.turnOrder) this.assignedWords.set(id, this.nextWord());
+      this.advanceTurn();
+    }
   }
 
   // Pops the next word off the shuffled pool (so a match doesn't repeat a
@@ -149,6 +162,12 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       throw new GameActionError("เกมนี้จบไปแล้ว");
     }
 
+    if (this.disconnected.has(userId)) throw new GameActionError("กรุณากลับเข้าห้องก่อนทำรายการ");
+    if (this.phase === "SUBMIT_WORDS") {
+      if (actionType !== "wordhead:submitWord") throw new GameActionError("รอทุกคนส่งโจทย์ก่อน");
+      this.submitWord(userId, payload);
+      return;
+    }
     switch (actionType) {
       case WORDHEAD_ACTIONS.HINT:
         this.handleHint(userId, validateHintPayload(payload));
@@ -174,6 +193,25 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       default:
         throw new GameActionError(`ไม่รู้จักการกระทำนี้: ${actionType}`);
     }
+  }
+
+  private submitWord(userId: string, payload: unknown): void {
+    if (!this.submissionDeadline || Date.now() >= this.submissionDeadline) throw new GameActionError("หมดเวลาส่งโจทย์");
+    if (this.submissions.has(userId)) throw new GameActionError("ส่งโจทย์แล้ว แก้ไขไม่ได้");
+    const word = payload && typeof payload === "object" ? (payload as { word?: unknown }).word : null;
+    if (typeof word !== "string" || !word.trim() || word.trim().length > 60 || /[\r\n\x00-\x1f]/.test(word)) throw new GameActionError("กรอกคำหรือวลีสั้น ๆ 1–60 ตัวอักษร บรรทัดเดียว");
+    const clean = word.trim().normalize("NFC");
+    const key = (s: string) => s.normalize("NFC").replace(/\s/g, "").toLocaleLowerCase();
+    if ([...this.submissions.values()].some(s => key(s) === key(clean))) throw new GameActionError("โจทย์นี้ซ้ำ กรุณาคิดคำใหม่");
+    this.submissions.set(userId, clean);
+    if (this.submissions.size === this.players.size) {
+      // A shuffled cycle is a derangement: each recipient gets the next author's word.
+      const ids = shuffle([...this.players.keys()]);
+      ids.forEach((id, i) => this.assignedWords.set(id, this.submissions.get(ids[(i + 1) % ids.length])!));
+      if (this.submissionTimer) clearTimeout(this.submissionTimer);
+      this.submissionTimer = null; this.submissionDeadline = null;
+      this.advanceTurn();
+    } else this.emit(GAME_ENGINE_EVENTS.STATE_CHANGED);
   }
 
   // Anyone except the current up player can give a hint, any time, as often
@@ -348,7 +386,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
 
   private beginTurn(userId: string): void {
     this.currentTurnUserId = userId;
-    this.currentWord = this.nextWord();
+    this.currentWord = this.assignedWords.get(userId) ?? null;
     this.turnStartedAt = Date.now();
     this.pendingGuess = null;
     this.guessVotes.clear();
@@ -357,6 +395,9 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   }
 
   private concludeRound(reason: string): void {
+    if (this.finished) return;
+    if (this.submissionTimer) clearTimeout(this.submissionTimer);
+    this.submissionTimer = null; this.submissionDeadline = null;
     this.currentTurnUserId = null;
     this.currentWord = null;
     this.turnStartedAt = null;
@@ -408,6 +449,9 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   getPublicState(): WordHeadPublicState {
     return {
       phase: this.phase,
+      wordSource: this.config.wordSource ?? "SYSTEM",
+      submittedUserIds: [...this.submissions.keys()],
+      submissionDeadline: this.submissionDeadline,
       players: this.getPlayers().map((p) => ({
         userId: p.userId,
         username: p.username,
@@ -433,7 +477,8 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
   getPrivateState(userId: string): WordHeadPrivateState {
     const isUp = userId === this.currentTurnUserId;
     return {
-      currentWord: isUp ? null : this.currentWord,
+      submittedWord: this.phase === "SUBMIT_WORDS" ? this.submissions.get(userId) ?? null : null,
+      currentWord: isUp || !this.players.has(userId) ? null : this.currentWord,
       hintCooldownEndsAt: this.hintCooldownUntilByUserId.get(userId) ?? null,
       notes: this.notesByUserId.get(userId) ?? "",
     };
@@ -460,7 +505,7 @@ export class WordHeadGame extends BaseGame<WordHeadPublicState, WordHeadPrivateS
       // (see its typeof-guarded field reads) - omitting Spyfall-shaped keys
       // like winner/spyUserId/spyUsername/reason so their harmless fallback
       // defaults simply never surface for this game.
-      details: { ...result, playMode: this.config.playMode ?? "TABLE" } as unknown as Record<string, unknown>,
+      details: { ...result, wordSource: this.config.wordSource ?? "SYSTEM", playMode: this.config.playMode ?? "TABLE" } as unknown as Record<string, unknown>,
     };
   }
 }

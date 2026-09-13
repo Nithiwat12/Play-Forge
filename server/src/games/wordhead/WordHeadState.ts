@@ -8,7 +8,7 @@
 // points-where-more-is-better convention; GameResult.tsx and
 // ScoreboardService both need to know this is a wordhead result to invert
 // their usual "highest wins" assumption).
-export type WordHeadPhase = "TURN" | "FINISHED";
+export type WordHeadPhase = "SUBMIT_WORDS" | "TURN" | "FINISHED";
 
 export interface WordHeadPublicPlayer {
   userId: string;
@@ -66,6 +66,9 @@ export interface WordHeadResult {
 }
 
 export interface WordHeadPublicState {
+  wordSource: "SYSTEM" | "PLAYERS";
+  submittedUserIds: string[];
+  submissionDeadline: number | null;
   phase: WordHeadPhase;
   players: WordHeadPublicPlayer[];
   turnOrder: string[];
@@ -88,6 +91,7 @@ export interface WordHeadPublicState {
 
 // Only ever holds THIS browser's own view.
 export interface WordHeadPrivateState {
+  submittedWord: string | null;
   // The current hot-seat player's word - present for everyone EXCEPT that
   // player themselves (and null once the round is finished). That's the
   // whole game, so getPrivateState must never let the up player see this
@@ -133,6 +137,7 @@ export interface UpdateNotesPayload {
 // not supported yet (see gameSocket's Spyfall-specific locationCategory
 // coupling in the continue-vote layer) - only RANDOM and FIXED.
 export interface WordHeadConfig {
+  wordSource?: "SYSTEM" | "PLAYERS";
   playMode?: "TABLE" | "ONLINE";
   categoryMode?: "RANDOM" | "FIXED";
   category?: string;

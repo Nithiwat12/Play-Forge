@@ -26,6 +26,7 @@ export const roomSettingsSchema = z
     roleConfig: roleConfigSchema.optional(),
     ito: itoConfigSchema.optional(),
     playMode: z.enum(["TABLE", "ONLINE"]).optional(),
+    wordSource: z.enum(["SYSTEM", "PLAYERS"]).optional(),
     // Minutes, converted to seconds before being stored/used by the engine.
     discussionMinutes: z.coerce.number().int().min(3).max(20).optional(),
     // How many rounds this room's match will run for. Left unset means

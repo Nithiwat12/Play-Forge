@@ -34,6 +34,7 @@ export interface RoomPlayer {
 
 export interface RoomSettings {
   playMode?: "TABLE" | "ONLINE";
+  wordSource?: "SYSTEM" | "PLAYERS";
   roleConfig?: RoleConfig;
   ito?: { mode: "TABLE" | "ONLINE"; stages: number; roundSeconds: number };
   discussionSeconds?: number;

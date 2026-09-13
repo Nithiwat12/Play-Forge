@@ -37,6 +37,7 @@ export function CreateRoom() {
   const [numberOfRounds, setNumberOfRounds] = useState(3);
   const [categoryMode, setCategoryMode] = useState<CategoryMode>("RANDOM");
   const isIto = gameSlug === "ito";
+  const [wordSource, setWordSource] = useState<"SYSTEM" | "PLAYERS">("SYSTEM");
   const [playMode, setPlayMode] = useState<"TABLE" | "ONLINE">("ONLINE");
   const [itoStages, setItoStages] = useState(3);
   const [itoMinutes, setItoMinutes] = useState(10);
@@ -61,11 +62,12 @@ export function CreateRoom() {
         password: usePassword ? password : undefined,
         settings: isIto ? { playMode, ito: { mode: playMode, stages: itoStages, roundSeconds: itoMinutes * 60 } } : {
           playMode,
+          ...(isWordHead ? { wordSource } : {}),
           ...(roleDefinitions.length ? { roleConfig } : {}),
           ...(discussionMinutes ? { discussionMinutes } : {}),
           ...(limitRounds ? { numberOfRounds } : {}),
-          categoryMode,
-          ...(categoryMode === "FIXED" ? { category } : {}),
+          categoryMode: isWordHead && wordSource === "PLAYERS" ? "RANDOM" : categoryMode,
+          ...(categoryMode === "FIXED" && !(isWordHead && wordSource === "PLAYERS") ? { category } : {}),
         },
       });
       setRoom(data.room);
@@ -120,6 +122,7 @@ export function CreateRoom() {
                 <option value="TABLE">นั่งด้วยกัน — พูดคุยด้วยเสียง</option>
               </select>
               <p className="text-sm text-slate-400">{playMode === "ONLINE" ? "ในเกมจะแสดงช่องพิมพ์และปุ่มส่งข้อความ เล่นได้โดยไม่ต้องพูด" : "ในเกมจะแสดงปุ่มสำหรับพูดเล่นและยืนยัน ไม่แสดงช่องพิมพ์คำถามหรือคำใบ้"}</p>
+              {isWordHead && <><label htmlFor="wordSource" className="block text-sm font-semibold text-slate-300">ที่มาของโจทย์</label><select id="wordSource" className="w-full rounded-lg bg-slate-900 p-4 text-white" value={wordSource} onChange={e => setWordSource(e.target.value as "SYSTEM" | "PLAYERS")}><option value="SYSTEM">ระบบสุ่มคำให้ทุกคน</option><option value="PLAYERS">ทุกคนพิมพ์โจทย์แล้วสุ่มให้คนอื่น</option></select><p className="text-sm text-slate-400">{wordSource === "SYSTEM" ? "สุ่มจากคลังคำที่เพิ่มคำยากขึ้นในทุกหมวด" : "เริ่มเกมแล้วทุกคนส่งโจทย์ลับคนละคำภายใน 3 นาที ระบบแจกโดยไม่มีใครได้คำของตัวเอง"}</p></>}
               {isIto && <><Input id="itoStages" label="จำนวนด่าน (เพิ่มไพ่คนละใบต่อด่าน)" type="number" min={1} max={3} required value={itoStages} onChange={e => setItoStages(Number(e.target.value))}/><Input id="itoMinutes" label="เวลาต่อด่าน (นาที)" type="number" min={2} max={20} required value={itoMinutes} onChange={e => setItoMinutes(Number(e.target.value))}/></>}
             </fieldset>
             <RoleConfiguration definitions={roleDefinitions} value={roleConfig} onChange={setRoleConfig} playerCount={maxPlayers} />
@@ -160,7 +163,7 @@ export function CreateRoom() {
               />
             )}
 
-            <div className="flex flex-col gap-2">
+            {!(isWordHead && wordSource === "PLAYERS") && <div className="flex flex-col gap-2">
               <label htmlFor="categoryMode" className="text-sm text-slate-300">
                 {categoryLabel}
               </label>
@@ -198,7 +201,7 @@ export function CreateRoom() {
                   ผู้เล่นคนอื่นจะเห็นข้อความว่าหัวหน้าห้องกำลังเลือกอยู่ (ปิดหน้าต่างนี้ได้ แต่รอบจะยังไม่เริ่มนับเวลาจนกว่าจะเลือกเสร็จ)
                 </p>
               )}
-            </div>
+            </div>}
 
             </>}
 

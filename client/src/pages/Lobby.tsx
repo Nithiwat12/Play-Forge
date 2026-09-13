@@ -290,6 +290,7 @@ export function Lobby() {
           </ul>
 
           {(room.game.roleDefinitions?.length ?? 0) > 0 && <div className="mt-5 space-y-3">
+            {room.game.slug === "wordhead" && <p className="text-sm text-amber-300">โจทย์: {room.settings?.wordSource === "PLAYERS" ? "ผู้เล่นเขียนโจทย์ลับตอนเริ่มเกม" : "ระบบสุ่มจากคลังคำ"}</p>}
             <RoleConfiguration definitions={room.game.roleDefinitions ?? []} value={roleDraft ?? room.settings?.roleConfig ?? {}} onChange={setRoleDraft} playerCount={Math.max(room.game.minPlayers, room.players.filter(p => p.connected).length)} disabled={!isHost || savingRoles || isStarting} />
             {isHost && roleDraft && <Button isLoading={savingRoles} onClick={() => void saveRoles()}>บันทึกบทบาท (ทุกคนต้องกดพร้อมใหม่)</Button>}
           </div>}
