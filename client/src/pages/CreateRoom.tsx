@@ -112,9 +112,17 @@ export function CreateRoom() {
               value={maxPlayers}
               onChange={(e) => setMaxPlayers(Number(e.target.value))}
             />
-            <fieldset className="space-y-3 rounded-xl border border-teal-800 p-4"><legend>รูปแบบการเล่น</legend><select aria-label="รูปแบบการเล่น" className="w-full rounded-lg bg-slate-900 p-3 text-white" value={playMode} onChange={e => setPlayMode(e.target.value as "TABLE" | "ONLINE")}><option value="TABLE">นั่งด้วยกัน — พูดคุยด้วยเสียง</option><option value="ONLINE">ออนไลน์ — พิมพ์ ไม่ใช้เสียง</option></select><p className="text-xs text-slate-400">ทุกคนใช้บัญชีและอุปกรณ์ของตัวเองเพื่อรักษาข้อมูลลับ โหมดออนไลน์ต้องส่งข้อความถาม ตอบ หรือใบ้ในเกม โหมดนั่งด้วยกันใช้การพูดแล้วกดยืนยันได้</p></fieldset>
+            <fieldset className="space-y-4 rounded-xl border border-teal-800 p-5">
+              <legend className="px-1 font-semibold text-slate-200">รูปแบบเล่น {isIto ? "ito" : isWordHead ? "WordHead" : "Spyfall"}</legend>
+              <label htmlFor="playMode" className="block text-sm font-semibold text-slate-300">การสื่อสาร</label>
+              <select id="playMode" className="w-full rounded-lg bg-slate-900 p-4 font-semibold text-white" value={playMode} onChange={e => setPlayMode(e.target.value as "TABLE" | "ONLINE")}>
+                <option value="ONLINE">ออนไลน์ — {isSpyfall ? "พิมพ์ถาม–ตอบ" : "พิมพ์คำใบ้"} ไม่ใช้เสียง</option>
+                <option value="TABLE">นั่งด้วยกัน — พูดคุยด้วยเสียง</option>
+              </select>
+              <p className="text-sm text-slate-400">{playMode === "ONLINE" ? "ในเกมจะแสดงช่องพิมพ์และปุ่มส่งข้อความ เล่นได้โดยไม่ต้องพูด" : "ในเกมจะแสดงปุ่มสำหรับพูดเล่นและยืนยัน ไม่แสดงช่องพิมพ์คำถามหรือคำใบ้"}</p>
+              {isIto && <><Input id="itoStages" label="จำนวนด่าน (เพิ่มไพ่คนละใบต่อด่าน)" type="number" min={1} max={3} required value={itoStages} onChange={e => setItoStages(Number(e.target.value))}/><Input id="itoMinutes" label="เวลาต่อด่าน (นาที)" type="number" min={2} max={20} required value={itoMinutes} onChange={e => setItoMinutes(Number(e.target.value))}/></>}
+            </fieldset>
             <RoleConfiguration definitions={roleDefinitions} value={roleConfig} onChange={setRoleConfig} playerCount={maxPlayers} />
-            {isIto && <fieldset className="space-y-4 rounded-xl border border-teal-800 p-4"><legend>รูปแบบเล่น ito</legend><Input id="itoStages" label="จำนวนด่าน (เพิ่มไพ่คนละใบต่อด่าน)" type="number" min={1} max={3} required value={itoStages} onChange={e => setItoStages(Number(e.target.value))}/><Input id="itoMinutes" label="เวลาต่อด่าน (นาที)" type="number" min={2} max={20} required value={itoMinutes} onChange={e => setItoMinutes(Number(e.target.value))}/></fieldset>}
             {isSpyfall && (
               <Input
                 id="discussionMinutes"

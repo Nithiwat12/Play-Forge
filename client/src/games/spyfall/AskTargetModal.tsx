@@ -27,7 +27,7 @@ export function AskTargetModal({ online, questionText, onQuestionChange, players
           เลือกชื่อเพื่อส่งคำถามทันที ห้ามถามย้อนคนที่เพิ่งถามคุณ
         </p>
 
-        <input aria-label="คำถามในหน้าต่างเลือกผู้เล่น" value={questionText} onChange={e => onQuestionChange(e.target.value)} maxLength={300} placeholder={online ? "พิมพ์คำถามก่อนเลือกผู้เล่น" : "พูดคำถามได้ หรือพิมพ์ไว้ที่นี่"} className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-900 p-3 text-white"/>
+        {online ? <input aria-label="คำถามในหน้าต่างเลือกผู้เล่น" value={questionText} onChange={e => onQuestionChange(e.target.value)} maxLength={300} placeholder={online ? "พิมพ์คำถามก่อนเลือกผู้เล่น" : "พูดคำถามได้ หรือพิมพ์ไว้ที่นี่"} className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-900 p-3 text-white"/> : <p className="mt-3 rounded-lg bg-teal-950/40 p-3 text-sm text-teal-200">เลือกเพื่อนแล้วพูดคำถามได้เลย</p>}
         <div className="mt-4 flex flex-col gap-2">
           {askable.length === 0 && (
             <p className="text-sm text-slate-500">ยังไม่มีคนที่ถามได้ออนไลน์ ต้องผ่านคนอื่นก่อนจึงจะถามย้อนกลับได้</p>

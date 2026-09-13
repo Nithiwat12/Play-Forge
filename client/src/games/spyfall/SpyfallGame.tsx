@@ -423,13 +423,13 @@ export function SpyfallGame({
                   </p>
                   {isMyQuestionToAnswer ? (
                     <Button onClick={() => setIsAskModalOpen(true)} isLoading={isAsking}>
-                      ถามต่อ
+                      ตอบด้วยเสียงแล้ว · ถามต่อ
                     </Button>
                   ) : (
                     <Button variant="secondary" disabled>กำลังถาม</Button>
                   )}
                 </div>
-                <Input
+                {online ? <Input
                   aria-label="ข้อความคำถาม"
                   value={questionText}
                   onChange={(e) => setQuestionText(e.target.value)}
@@ -437,7 +437,7 @@ export function SpyfallGame({
                   placeholder={online ? "พิมพ์คำถามถึงคนถัดไป (จำเป็น)" : "คำถาม (ไม่บังคับ — พูดได้)"}
                   className="mt-3 w-full"
                   disabled={isAsking}
-                />
+                /> : <p className="mt-3 rounded-lg bg-teal-950/40 p-4 text-sm text-teal-200">{isMyQuestionToAnswer ? "พูดคำตอบให้เพื่อนฟัง แล้วกดถามต่อเพื่อเลือกคนถัดไป" : "เลือกคนที่จะถาม แล้วพูดคำถามให้เพื่อนฟัง"}</p>}
                 {!isMyQuestionToAnswer && (
                   <div className="mt-3">
                     <p className="mb-2 text-sm text-slate-400">เลือกคนที่จะถาม</p>

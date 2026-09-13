@@ -259,8 +259,9 @@ export function WordHeadGame({
           <Card className="border-amber-700">
             <h2 className="text-sm font-semibold text-slate-300">ตาของคุณ - ทายคำของตัวเอง</h2>
             <p className="mt-1 text-xs text-slate-500">
-              {online ? "ออนไลน์: อ่านคำใบ้ในบันทึก แล้วพิมพ์คำตอบกดทายคำ ทุกคนโหวตตัดสินคำตอบ" : "นั่งด้วยกัน: ฟังคำใบ้ พูดคำตอบแล้วกดตอบแล้ว หรือพิมพ์ก็ได้ รอคนใบ้ทุกคนโหวต ตัดสินด้วยเสียงส่วนมาก"}
+              {online ? "ออนไลน์: อ่านคำใบ้ในบันทึก แล้วพิมพ์คำตอบกดทายคำ ทุกคนโหวตตัดสินคำตอบ" : "นั่งด้วยกัน: ฟังคำใบ้ พูดคำตอบแล้วกด “พูดคำตอบแล้ว” รอคนใบ้ทุกคนโหวต ตัดสินด้วยเสียงส่วนมาก"}
             </p>
+            {online && <>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Input
                 disabled={Boolean(publicState.pendingGuess) || isSubmittingAction}
@@ -277,9 +278,10 @@ export function WordHeadGame({
                 ทายคำ
               </Button>
             </div>
+            </>}
             <div className="mt-4 flex flex-wrap gap-3">
               {!online && <Button onClick={handleAnswer} disabled={Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
-                ตอบแล้ว
+                🎤 พูดคำตอบแล้ว
               </Button>}
               <Button variant="ghost" onClick={() => setShowPassConfirm(true)} disabled={Boolean(publicState.pendingGuess)} isLoading={isSubmittingAction}>
                 ยอมแพ้ / ข้ามตานี้

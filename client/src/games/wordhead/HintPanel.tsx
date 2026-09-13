@@ -56,15 +56,15 @@ export function HintPanel({
         {online ? "ออนไลน์: พิมพ์คำใบ้แล้วส่ง คนทายจะอ่านได้ในบันทึก ห้ามบอกคำเฉลย" : "นั่งด้วยกัน: พูดคำใบ้แล้วกดให้คำใบ้ได้ ไม่จำเป็นต้องพิมพ์"}
       </p>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <Input
+        {online ? <Input
           value={hintText}
           onChange={(e) => setHintText(e.target.value)}
           maxLength={200}
           placeholder={online ? "พิมพ์คำใบ้ (จำเป็น)" : "คำใบ้ (ไม่บังคับ)"}
           className="flex-1"
-        />
+        /> : <p className="flex-1 rounded-lg bg-emerald-950/50 p-3 text-sm text-emerald-200">พูดใบ้ให้เพื่อนฟัง โดยไม่บอกคำเฉลยบนจอ</p>}
         <Button onClick={handleSubmit} disabled={onCooldown || (online && !hintText.trim())} isLoading={isSubmitting}>
-          {onCooldown ? `รอ ${cooldownSecondsLeft} วิ` : "ให้คำใบ้"}
+          {onCooldown ? `รอ ${cooldownSecondsLeft} วิ` : online ? "ส่งคำใบ้" : "🎤 พูดคำใบ้แล้ว"}
         </Button>
       </div>
     </Card>
