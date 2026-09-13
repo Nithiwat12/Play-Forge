@@ -1,4 +1,5 @@
 import type { RoleConfig, RoleDefinition } from "../games/core/roles";
+import type { IslandConfig } from "../games/island_betrayal/config";
 // Shared platform-level types used across services, controllers, and the
 // socket layer. Game-specific types live inside each game's own module
 // (e.g. src/games/spyfall/SpyfallState.ts) and are never imported here.
@@ -44,6 +45,8 @@ export interface PublicRoomPlayer {
 // game's own settings later needs no schema change here.
 export interface RoomSettings {
   roleConfig?: RoleConfig;
+  island?: IslandConfig;
+  ito?: import("../games/ito/config").ItoConfig;
   discussionSeconds?: number;
   // How many rounds this room's match runs for. Unset = unlimited (the
   // host can keep hitting "replay" indefinitely).

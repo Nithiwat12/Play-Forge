@@ -1,5 +1,7 @@
+import { itoConfigSchema } from "../games/ito/config";
 import { GameRegistry } from "../games/core/GameRegistry";
 import { resolveRoleCounts, roleConfigSchema } from "../games/core/roles";
+import { islandConfigSchema } from "../games/island_betrayal/config";
 import bcrypt from "bcryptjs";
 import { GameManager } from "../games/core/GameManager";
 import { Prisma } from "@prisma/client";
@@ -144,9 +146,11 @@ export const RoomService = {
     // Minutes are friendlier for a host to type; the engine works in
     // seconds, so the conversion happens once, right at creation time.
     let settings: RoomSettings | undefined =
-      input.settings?.discussionMinutes ||
-      input.settings?.numberOfRounds ||
-      input.settings?.categoryMode
+      game.slug !== "island_betrayal" && (
+        input.settings?.discussionMinutes ||
+        input.settings?.numberOfRounds ||
+        input.settings?.categoryMode
+      )
         ? {
             ...(input.settings.discussionMinutes
               ? { discussionSeconds: input.settings.discussionMinutes * 60 }
@@ -168,7 +172,9 @@ export const RoomService = {
           }
         : undefined;
 
+    if (game.slug === "ito") settings = { ito: itoConfigSchema.parse(input.settings?.ito ?? {}) };
     if (definitions.length) settings = { ...settings, roleConfig: input.settings?.roleConfig ?? {} };
+    if (game.slug === "island_betrayal") settings = { ...settings, island: islandConfigSchema.parse(input.settings?.island ?? {}) };
 
     const room = await prisma.room.create({
       data: {

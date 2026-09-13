@@ -34,6 +34,8 @@ export interface RoomPlayer {
 
 export interface RoomSettings {
   roleConfig?: RoleConfig;
+  island?: Record<string, unknown>;
+  ito?: { mode: "TABLE" | "ONLINE"; stages: number; roundSeconds: number };
   discussionSeconds?: number;
   numberOfRounds?: number;
   // How the location/topic for each round gets picked - see CreateRoom's
